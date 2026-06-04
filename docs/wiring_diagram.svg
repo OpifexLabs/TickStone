@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="1000" viewBox="0 0 1600 1000">
+  <defs>
+    <style>
+      .bg { fill: #f7f9fb; }
+      .card { fill: #ffffff; stroke: #1f2937; stroke-width: 3; }
+      .panel { fill: #eef2f7; stroke: #334155; stroke-width: 2; }
+      .pin { fill: #111827; }
+      .text { font-family: Arial, Helvetica, sans-serif; fill: #111827; }
+      .title { font-size: 38px; font-weight: 700; }
+      .subtitle { font-size: 22px; fill: #475569; }
+      .label { font-size: 21px; font-weight: 700; }
+      .small { font-size: 17px; fill: #334155; }
+      .tiny { font-size: 14px; fill: #334155; }
+      .wire-data { stroke: #2563eb; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .wire-power { stroke: #dc2626; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .wire-gnd { stroke: #111827; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .wire-led { stroke: #16a34a; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .wire-button { stroke: #9333ea; stroke-width: 5; fill: none; stroke-linecap: round; stroke-linejoin: round; }
+      .led { fill: #f8fafc; stroke: #475569; stroke-width: 3; }
+      .led-glow { fill: #fff7cc; stroke: #eab308; stroke-width: 3; }
+      .resistor { fill: #fde68a; stroke: #92400e; stroke-width: 3; }
+      .switch { fill: #f3e8ff; stroke: #6b21a8; stroke-width: 3; }
+      .rail { fill: #e2e8f0; stroke: #64748b; stroke-width: 2; }
+    </style>
+  </defs>
+
+  <rect class="bg" x="0" y="0" width="1600" height="1000"/>
+
+  <text class="text title" x="70" y="70">Habit tracker breadboard MVP - kopplingsschema</text>
+  <text class="text subtitle" x="70" y="105">ESP32-S3 + MAX7219 4x 8x8 display + 3 LEDs + 3 active-low knappar</text>
+
+  <!-- Rails -->
+  <rect class="rail" x="80" y="875" width="1440" height="36" rx="8"/>
+  <line class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="115" y1="893" x2="1490" y2="893"/>
+  <text class="text label" x="85" y="858">Gemensam GND-rail</text>
+
+  <rect class="rail" x="80" y="815" width="1440" height="36" rx="8"/>
+  <line class="wire-power" stroke="#dc2626" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="115" y1="833" x2="1490" y2="833"/>
+  <text class="text label" x="85" y="798">5V till MAX7219 VCC</text>
+
+  <!-- ESP32-S3 board -->
+  <rect class="card" x="120" y="165" width="390" height="585" rx="18"/>
+  <rect class="panel" x="180" y="215" width="270" height="95" rx="10"/>
+  <text class="text title" x="185" y="270">ESP32-S3</text>
+  <text class="text subtitle" x="194" y="300">dev board</text>
+
+  <circle class="pin" cx="500" cy="360" r="7"/>
+  <text class="text small" x="320" y="367">GPIO4 - DIN/MOSI</text>
+  <circle class="pin" cx="500" cy="410" r="7"/>
+  <text class="text small" x="346" y="417">GPIO5 - CLK</text>
+  <circle class="pin" cx="500" cy="460" r="7"/>
+  <text class="text small" x="313" y="467">GPIO6 - CS/LOAD</text>
+
+  <circle class="pin" cx="500" cy="545" r="7"/>
+  <text class="text small" x="331" y="552">GPIO15 - LED 1</text>
+  <circle class="pin" cx="500" cy="595" r="7"/>
+  <text class="text small" x="331" y="602">GPIO16 - LED 2</text>
+  <circle class="pin" cx="500" cy="645" r="7"/>
+  <text class="text small" x="331" y="652">GPIO17 - LED 3</text>
+
+  <circle class="pin" cx="500" cy="690" r="7"/>
+  <text class="text small" x="321" y="697">GPIO7 - left btn</text>
+  <circle class="pin" cx="500" cy="720" r="7"/>
+  <text class="text small" x="319" y="727">GPIO8 - play btn</text>
+  <circle class="pin" cx="500" cy="750" r="7"/>
+  <text class="text small" x="315" y="757">GPIO9 - right btn</text>
+
+  <circle class="pin" cx="315" cy="750" r="7"/>
+  <text class="text small" x="185" y="757">GND</text>
+  <circle class="pin" cx="315" cy="720" r="7"/>
+  <text class="text small" x="185" y="727">5V/VBUS</text>
+
+  <!-- MAX7219 display -->
+  <rect class="card" x="910" y="150" width="520" height="250" rx="18"/>
+  <text class="text label" x="955" y="195">MAX7219 4x 8x8 dot matrix</text>
+  <rect x="970" y="225" width="320" height="90" rx="8" fill="#111827"/>
+  <text x="1007" y="286" font-family="Courier New, monospace" font-size="54" fill="#f97316" font-weight="700">20:00</text>
+  <circle class="pin" cx="910" cy="255" r="7"/>
+  <text class="text small" x="930" y="262">DIN</text>
+  <circle class="pin" cx="910" cy="305" r="7"/>
+  <text class="text small" x="930" y="312">CLK</text>
+  <circle class="pin" cx="910" cy="355" r="7"/>
+  <text class="text small" x="930" y="362">CS/LOAD</text>
+  <circle class="pin" cx="1430" cy="245" r="7"/>
+  <text class="text small" x="1325" y="252">VCC 5V</text>
+  <circle class="pin" cx="1430" cy="345" r="7"/>
+  <text class="text small" x="1348" y="352">GND</text>
+
+  <!-- MAX7219 wires -->
+  <path class="wire-data" stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 360 C635 360 720 255 910 255"/>
+  <path class="wire-data" stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 410 C660 410 745 305 910 305"/>
+  <path class="wire-data" stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 460 C685 460 760 355 910 355"/>
+  <path class="wire-power" stroke="#dc2626" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1430 245 L1490 245 L1490 833"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1430 345 L1490 345 L1490 893"/>
+
+  <!-- LEDs -->
+  <g transform="translate(890 500)">
+    <text class="text label" x="0" y="-35">Habit LEDs</text>
+
+    <rect class="resistor" x="0" y="0" width="90" height="28" rx="6"/>
+    <text class="text tiny" x="19" y="20">220Ω</text>
+    <circle class="led-glow" cx="140" cy="14" r="24"/>
+    <text class="text small" x="180" y="21">LED habit 1</text>
+
+    <rect class="resistor" x="0" y="60" width="90" height="28" rx="6"/>
+    <text class="text tiny" x="19" y="80">220Ω</text>
+    <circle class="led" cx="140" cy="74" r="24"/>
+    <text class="text small" x="180" y="81">LED habit 2</text>
+
+    <rect class="resistor" x="0" y="120" width="90" height="28" rx="6"/>
+    <text class="text tiny" x="19" y="140">220Ω</text>
+    <circle class="led" cx="140" cy="134" r="24"/>
+    <text class="text small" x="180" y="141">LED habit 3</text>
+  </g>
+
+  <path class="wire-led" stroke="#16a34a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 545 C670 545 755 514 890 514"/>
+  <path class="wire-led" stroke="#16a34a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 595 C670 595 755 574 890 574"/>
+  <path class="wire-led" stroke="#16a34a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 645 C670 645 755 634 890 634"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1054 514 C1160 514 1210 893 1315 893"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1054 574 C1165 574 1220 893 1335 893"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1054 634 C1170 634 1230 893 1355 893"/>
+
+  <!-- Buttons -->
+  <g transform="translate(900 705)">
+    <text class="text label" x="0" y="-35">Knappar, active-low med intern pullup</text>
+
+    <rect class="switch" x="0" y="0" width="115" height="40" rx="8"/>
+    <line x1="18" y1="22" x2="48" y2="22" stroke="#6b21a8" stroke-width="4"/>
+    <line x1="67" y1="14" x2="98" y2="28" stroke="#6b21a8" stroke-width="4"/>
+    <text class="text small" x="138" y="27">Left</text>
+
+    <rect class="switch" x="0" y="62" width="115" height="40" rx="8"/>
+    <line x1="18" y1="84" x2="48" y2="84" stroke="#6b21a8" stroke-width="4"/>
+    <line x1="67" y1="76" x2="98" y2="90" stroke="#6b21a8" stroke-width="4"/>
+    <text class="text small" x="138" y="89">Play</text>
+
+    <rect class="switch" x="0" y="124" width="115" height="40" rx="8"/>
+    <line x1="18" y1="146" x2="48" y2="146" stroke="#6b21a8" stroke-width="4"/>
+    <line x1="67" y1="138" x2="98" y2="152" stroke="#6b21a8" stroke-width="4"/>
+    <text class="text small" x="138" y="151">Right</text>
+  </g>
+
+  <path class="wire-button" stroke="#9333ea" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 690 C660 690 760 725 900 725"/>
+  <path class="wire-button" stroke="#9333ea" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 720 C660 720 760 787 900 787"/>
+  <path class="wire-button" stroke="#9333ea" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M500 750 C660 750 760 849 900 849"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1015 725 C1115 725 1135 893 1230 893"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1015 787 C1115 787 1135 893 1250 893"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M1015 849 C1115 849 1135 893 1270 893"/>
+
+  <!-- ESP power/common ground references -->
+  <path class="wire-power" stroke="#dc2626" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M315 720 C245 720 245 833 115 833"/>
+  <path class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" d="M315 750 C245 750 245 893 115 893"/>
+
+  <!-- Legend -->
+  <rect class="card" x="90" y="920" width="1420" height="55" rx="12"/>
+  <line class="wire-data" stroke="#2563eb" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="125" y1="948" x2="185" y2="948"/>
+  <text class="text small" x="200" y="954">MAX7219 signal</text>
+  <line class="wire-led" stroke="#16a34a" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="390" y1="948" x2="450" y2="948"/>
+  <text class="text small" x="465" y="954">LED GPIO</text>
+  <line class="wire-button" stroke="#9333ea" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="620" y1="948" x2="680" y2="948"/>
+  <text class="text small" x="695" y="954">Button GPIO</text>
+  <line class="wire-power" stroke="#dc2626" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="870" y1="948" x2="930" y2="948"/>
+  <text class="text small" x="945" y="954">5V</text>
+  <line class="wire-gnd" stroke="#111827" stroke-width="5" fill="none" stroke-linecap="round" stroke-linejoin="round" x1="1040" y1="948" x2="1100" y2="948"/>
+  <text class="text small" x="1115" y="954">GND</text>
+  <text class="text small" x="1220" y="954">OBS: MAX7219 kan kräva level shifter från ESP32-S3 3.3V logic.</text>
+</svg>
