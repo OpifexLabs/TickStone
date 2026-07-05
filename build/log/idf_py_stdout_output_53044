@@ -1,0 +1,68 @@
+Command: /Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python /Users/allangamal/esp/esp-idf/tools/idf_monitor.py -p /dev/cu.usbmodem21201 -b 115200 --toolchain-prefix riscv32-esp-elf- --target esp32c3 --revision 3 --decode-panic backtrace /Users/allangamal/Documents/GitHub/TickStone/build/tickstone_oled_test.elf /Users/allangamal/Documents/GitHub/TickStone/build/bootloader/bootloader.elf -m '/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python' '/Users/allangamal/esp/esp-idf/tools/idf.py' '-p' '/dev/cu.usbmodem21201'
+ESP-ROM:esp32c3-api1-20210207
+Build:Feb  7 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x403822aa
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fcd5820,len:0x155c
+load:0x403cbf10,len:0xc84
+load:0x403ce710,len:0x2fa4
+entry 0x403cbf1a
+[0;32mI (24) boot: ESP-IDF v5.5.3 2nd stage bootloader[0m
+[0;32mI (24) boot: compile time Jun 21 2026 10:35:48[0m
+[0;32mI (25) boot: chip revision: v0.4[0m
+[0;32mI (25) boot: efuse block revision: v1.3[0m
+[0;32mI (28) boot.esp32c3: SPI Speed      : 80MHz[0m
+[0;32mI (32) boot.esp32c3: SPI Mode       : DIO[0m
+[0;32mI (36) boot.esp32c3: SPI Flash Size : 2MB[0m
+[0;32mI (39) boot: Enabling RNG early entropy source...[0m
+[0;32mI (44) boot: Partition Table:[0m
+[0;32mI (46) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (53) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (59) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (66) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (72) boot: End of partition table[0m
+[0;32mI (76) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=09d48h ( 40264) map[0m
+[0;32mI (89) esp_image: segment 1: paddr=00019d70 vaddr=3fc8d200 size=01798h (  6040) load[0m
+[0;32mI (91) esp_image: segment 2: paddr=0001b510 vaddr=40380000 size=04b08h ( 19208) load[0m
+[0;32mI (101) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1607ch ( 90236) map[0m
+[0;32mI (119) esp_image: segment 4: paddr=000360a4 vaddr=40384b08 size=08648h ( 34376) load[0m
+[0;32mI (126) esp_image: segment 5: paddr=0003e6f4 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (130) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (130) boot: Disabling RNG early entropy source...[0m
+[0;32mI (144) cpu_start: Unicore app[0m
+[0;32mI (153) cpu_start: GPIO 20 and 21 are used as console UART I/O pins[0m
+[0;32mI (153) cpu_start: Pro cpu start user code[0m
+[0;32mI (153) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (155) app_init: Application information:[0m
+[0;32mI (159) app_init: Project name:     tickstone_oled_test[0m
+[0;32mI (164) app_init: App version:      6fb09d9-dirty[0m
+[0;32mI (168) app_init: Compile time:     Jun 21 2026 10:35:40[0m
+[0;32mI (173) app_init: ELF file SHA256:  ca4ded674...[0m
+[0;32mI (177) app_init: ESP-IDF:          v5.5.3[0m
+[0;32mI (181) efuse_init: Min chip rev:     v0.3[0m
+[0;32mI (185) efuse_init: Max chip rev:     v1.99 [0m
+[0;32mI (189) efuse_init: Chip rev:         v0.4[0m
+[0;32mI (193) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (199) heap_init: At 3FC8F870 len 00030790 (193 KiB): RAM[0m
+[0;32mI (204) heap_init: At 3FCC0000 len 0001C710 (113 KiB): Retention RAM[0m
+[0;32mI (210) heap_init: At 3FCDC710 len 00002950 (10 KiB): Retention RAM[0m
+[0;32mI (216) heap_init: At 50000020 len 00001FC8 (7 KiB): RTCRAM[0m
+[0;32mI (223) spi_flash: detected chip: generic[0m
+[0;32mI (225) spi_flash: flash io: dio[0m
+[0;33mW (228) spi_flash: Detected size(4096k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;33mW (241) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`[0m
+[0;32mI (250) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (257) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (263) main_task: Started on CPU0[0m
+[0;32mI (263) main_task: Calling app_main()[0m
+[0;32mI (263) tickstone_oled_test: OLED test starting[0m
+[0;32mI (473) tickstone_oled_test: Trying OLED on SDA GPIO4 / SCL GPIO5[0m
+[0;32mI (473) tickstone_oled_test: Trying OLED on SDA GPIO5 / SCL GPIO4[0m
+[0;32mI (473) tickstone_oled_test: Trying OLED on SDA GPIO6 / SCL GPIO7[0m
+[0;32mI (473) tickstone_oled_test: Trying OLED on SDA GPIO7 / SCL GPIO6[0m
+[0;32mI (483) tickstone_oled_test: Trying OLED on SDA GPIO8 / SCL GPIO9[0m
+[0;32mI (483) tickstone_oled_test: Trying OLED on SDA GPIO9 / SCL GPIO8[0m
+[0;32mI (493) tickstone_oled_test: Preferred pins did not work; scanning GPIO0-GPIO10[0m
+[1;31mE (543) tickstone_oled_test: OLED not found. Check power, GND, and which GPIO your board labels D4/D5 actually map to.[0m

@@ -1,231 +1,114 @@
-#include <stdbool.h>
-#include <stdint.h>
+#include <stddef.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 
 #include "driver/gpio.h"
-#include "driver/spi_master.h"
+#include "esp_check.h"
 #include "esp_log.h"
-#include "esp_timer.h"
 
 #include "app_config.h"
-#include "buttons.h"
-#include "habit_leds.h"
-#include "max7219_matrix.h"
+#include "ssd1306_oled.h"
 
 static const char *TAG = APP_NAME;
 
+static esp_err_t show_word(const char *word, uint8_t x)
+{
+    ESP_RETURN_ON_ERROR(ssd1306_oled_clear(), TAG, "clear display failed");
+    return ssd1306_oled_draw_text_2x(x, 7, word);
+}
+
 typedef struct {
-    uint8_t selected_habit;
-    uint32_t duration_seconds[HABIT_COUNT];
-    uint32_t remaining_seconds;
-    bool running;
-    bool finished;
-} app_state_t;
+    gpio_num_t pin;
+    const char *label;
+    uint8_t x;
+} button_display_t;
 
-static void draw_remaining_time(uint32_t remaining_seconds)
+static esp_err_t init_oled_on_known_pins(ssd1306_oled_config_t *active_config)
 {
-    const uint8_t minutes = remaining_seconds / 60;
-    const uint8_t seconds = remaining_seconds % 60;
-    ESP_ERROR_CHECK(max7219_matrix_draw_time_mm_ss(minutes, seconds));
-}
+    static const ssd1306_oled_config_t preferred_candidates[] = {
+        {.sda_pin = OLED_SDA_PIN, .scl_pin = OLED_SCL_PIN, .address = OLED_I2C_ADDRESS},
+    };
 
-static void show_selected_habit(const app_state_t *state)
-{
-    if (!state->finished) {
-        ESP_ERROR_CHECK(habit_leds_show_selected(state->selected_habit));
-    }
-}
+    for (size_t i = 0; i < sizeof(preferred_candidates) / sizeof(preferred_candidates[0]); ++i) {
+        ESP_LOGI(TAG,
+                 "Trying OLED on SDA GPIO%ld / SCL GPIO%ld",
+                 (long)preferred_candidates[i].sda_pin,
+                 (long)preferred_candidates[i].scl_pin);
 
-static void select_habit(app_state_t *state, int direction)
-{
-    const int next = (int)state->selected_habit + direction + HABIT_COUNT;
-    state->selected_habit = next % HABIT_COUNT;
-    state->remaining_seconds = state->duration_seconds[state->selected_habit];
-    state->running = false;
-    state->finished = false;
-
-    ESP_LOGI(TAG, "Selected habit %u", state->selected_habit + 1);
-    show_selected_habit(state);
-    draw_remaining_time(state->remaining_seconds);
-}
-
-static void adjust_selected_duration(app_state_t *state, int delta_seconds)
-{
-    int32_t duration = (int32_t)state->duration_seconds[state->selected_habit] + delta_seconds;
-
-    if (duration < MIN_DURATION_SECONDS) {
-        duration = MIN_DURATION_SECONDS;
-    } else if (duration > MAX_DURATION_SECONDS) {
-        duration = MAX_DURATION_SECONDS;
-    }
-
-    state->duration_seconds[state->selected_habit] = duration;
-    state->remaining_seconds = duration;
-    state->running = false;
-    state->finished = false;
-
-    ESP_LOGI(TAG,
-             "Habit %u duration set to %ld:%02ld",
-             state->selected_habit + 1,
-             (long)(duration / 60),
-             (long)(duration % 60));
-
-    show_selected_habit(state);
-    draw_remaining_time(state->remaining_seconds);
-}
-
-static void reset_selected_timer(app_state_t *state)
-{
-    state->remaining_seconds = state->duration_seconds[state->selected_habit];
-    state->running = false;
-    state->finished = false;
-
-    ESP_LOGI(TAG, "Habit %u timer reset", state->selected_habit + 1);
-    show_selected_habit(state);
-    draw_remaining_time(state->remaining_seconds);
-}
-
-static void toggle_timer(app_state_t *state)
-{
-    if (state->finished || state->remaining_seconds == 0) {
-        state->remaining_seconds = state->duration_seconds[state->selected_habit];
-        state->finished = false;
-        draw_remaining_time(state->remaining_seconds);
-    }
-
-    state->running = !state->running;
-    ESP_LOGI(TAG, "Timer %s", state->running ? "started" : "paused");
-    show_selected_habit(state);
-}
-
-static void handle_button_event(app_state_t *state, const button_event_t *event)
-{
-    if (event->type == BUTTON_EVENT_SHORT_PRESS) {
-        switch (event->button) {
-        case BUTTON_ID_LEFT:
-            select_habit(state, -1);
-            break;
-        case BUTTON_ID_PLAY:
-            toggle_timer(state);
-            break;
-        case BUTTON_ID_RIGHT:
-            select_habit(state, 1);
-            break;
-        default:
-            break;
-        }
-
-        return;
-    }
-
-    if (event->type == BUTTON_EVENT_LONG_PRESS) {
-        switch (event->button) {
-        case BUTTON_ID_LEFT:
-            adjust_selected_duration(state, -60);
-            break;
-        case BUTTON_ID_PLAY:
-            reset_selected_timer(state);
-            break;
-        case BUTTON_ID_RIGHT:
-            adjust_selected_duration(state, 60);
-            break;
-        default:
-            break;
+        esp_err_t err = ssd1306_oled_init(&preferred_candidates[i]);
+        if (err == ESP_OK) {
+            *active_config = preferred_candidates[i];
+            return ESP_OK;
         }
     }
+
+    return ESP_ERR_NOT_FOUND;
 }
 
 void app_main(void)
 {
-    ESP_LOGI(TAG, "Habit tracker starting");
+    ESP_LOGI(TAG, "OLED test starting");
+    vTaskDelay(pdMS_TO_TICKS(200));
 
-    const gpio_num_t led_pins[HABIT_COUNT] = {
-        HABIT_LED_1_PIN,
-        HABIT_LED_2_PIN,
-        HABIT_LED_3_PIN,
+    ssd1306_oled_config_t oled_config = {0};
+    esp_err_t err = init_oled_on_known_pins(&oled_config);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG,
+                 "OLED not found. Check power, GND, and which GPIO your board labels D4/D5 actually map to.");
+        while (true) {
+            vTaskDelay(pdMS_TO_TICKS(1000));
+        }
+    }
+
+    static const button_display_t buttons[] = {
+        {.pin = GPIO_NUM_20, .label = "d7", .x = 52},
+        {.pin = GPIO_NUM_8, .label = "d8", .x = 52},
+        {.pin = GPIO_NUM_9, .label = "d9", .x = 52},
     };
 
-    const gpio_num_t button_pins[HABIT_COUNT] = {
-        BUTTON_LEFT_PIN,
-        BUTTON_PLAY_PIN,
-        BUTTON_RIGHT_PIN,
+    gpio_config_t button_config = {
+        .pin_bit_mask = 0,
+        .mode = GPIO_MODE_INPUT,
+        .pull_up_en = GPIO_PULLUP_ENABLE,
+        .pull_down_en = GPIO_PULLDOWN_DISABLE,
+        .intr_type = GPIO_INTR_DISABLE,
     };
 
-    const max7219_matrix_config_t matrix_config = {
-        .host = SPI2_HOST,
-        .mosi_pin = MAX7219_DIN_PIN,
-        .clk_pin = MAX7219_CLK_PIN,
-        .cs_pin = MAX7219_CS_PIN,
-        .device_count = MAX7219_DEVICE_COUNT,
-        .intensity = MAX7219_DEFAULT_INTENSITY,
-    };
+    for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
+        button_config.pin_bit_mask |= (1ULL << buttons[i].pin);
+    }
 
-    ESP_ERROR_CHECK(max7219_matrix_init(&matrix_config));
-    ESP_ERROR_CHECK(habit_leds_init(led_pins, HABIT_COUNT));
-    ESP_ERROR_CHECK(buttons_init(button_pins,
-                                 HABIT_COUNT,
-                                 BUTTON_DEBOUNCE_MS,
-                                 BUTTON_LONG_PRESS_MS));
+    ESP_ERROR_CHECK(gpio_config(&button_config));
 
-    app_state_t state = {
-        .selected_habit = 0,
-        .duration_seconds = {
-            DEFAULT_DURATION_SECONDS,
-            DEFAULT_DURATION_SECONDS,
-            DEFAULT_DURATION_SECONDS,
-        },
-        .remaining_seconds = DEFAULT_DURATION_SECONDS,
-        .running = false,
-        .finished = false,
-    };
+    gpio_num_t last_pressed_pin = GPIO_NUM_NC;
+    ESP_ERROR_CHECK(show_word("d7", 52));
 
-    ESP_LOGI(TAG, "Habit tracker started. Displaying 20:00");
-    draw_remaining_time(state.remaining_seconds);
-    show_selected_habit(&state);
-
-    int64_t last_countdown_us = esp_timer_get_time();
-    int64_t last_blink_us = esp_timer_get_time();
-    bool blink_on = true;
+    ESP_LOGI(TAG,
+             "OLED should show d7/d8/d9; SDA GPIO%ld / SCL GPIO%ld",
+             (long)oled_config.sda_pin,
+             (long)oled_config.scl_pin);
 
     while (true) {
-        button_event_t event = {0};
-        if (buttons_poll(&event)) {
-            handle_button_event(&state, &event);
-            last_countdown_us = esp_timer_get_time();
-        }
+        gpio_num_t pressed_pin = GPIO_NUM_NC;
+        const button_display_t *pressed_button = NULL;
 
-        const int64_t now_us = esp_timer_get_time();
-
-        if (state.running && !state.finished) {
-            while ((now_us - last_countdown_us) >= 1000000) {
-                last_countdown_us += 1000000;
-
-                if (state.remaining_seconds > 0) {
-                    state.remaining_seconds--;
-                    draw_remaining_time(state.remaining_seconds);
-                }
-
-                if (state.remaining_seconds == 0) {
-                    state.running = false;
-                    state.finished = true;
-                    blink_on = true;
-                    last_blink_us = now_us;
-                    ESP_LOGI(TAG, "Habit %u timer finished", state.selected_habit + 1);
-                    break;
-                }
+        for (size_t i = 0; i < sizeof(buttons) / sizeof(buttons[0]); ++i) {
+            if (gpio_get_level(buttons[i].pin) == 0) {
+                pressed_pin = buttons[i].pin;
+                pressed_button = &buttons[i];
+                break;
             }
-        } else {
-            last_countdown_us = now_us;
         }
 
-        if (state.finished && (now_us - last_blink_us) >= (FINISHED_BLINK_MS * 1000)) {
-            last_blink_us = now_us;
-            blink_on = !blink_on;
-            ESP_ERROR_CHECK(habit_leds_all_off());
-            ESP_ERROR_CHECK(habit_leds_set(state.selected_habit, blink_on));
+        if (pressed_button != NULL && pressed_pin != last_pressed_pin) {
+            ESP_LOGI(TAG,
+                     "Button %s detected on GPIO%ld",
+                     pressed_button->label,
+                     (long)pressed_pin);
+            ESP_ERROR_CHECK(show_word(pressed_button->label, pressed_button->x));
         }
+        last_pressed_pin = pressed_pin;
 
         vTaskDelay(pdMS_TO_TICKS(MAIN_LOOP_DELAY_MS));
     }

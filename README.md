@@ -2,25 +2,29 @@
 
 Native ESP-IDF MVP for en liten ESP32-S3-baserad habit tracker på breadboard.
 
-Första prototypen har 3 habits, 3 vita LED-lysdioder, 3 taktila knappar och en MAX7219 4x 8x8 dot matrix-display som visar en timer. Batteri, deep sleep, WiFi, Bluetooth, NVS och CAD är medvetet utanför denna iteration.
+Första prototypen har 3 habits, 3 vita LED-lysdioder, 3 taktila knappar och en MAX7219 8x8 dot matrix-display som visar en timer. Batteri, deep sleep, WiFi, Bluetooth, NVS och CAD är medvetet utanför denna iteration.
 
 ## Funktioner i MVP
 
 - Bootar och loggar att habit tracker startar.
-- Initierar MAX7219 och visar `20:00`.
+- Initierar MAX7219 och visar `20` som två kompakta siffror på 8x8-matrisen.
+- MAX7219-komponenten kan också visa två siffror i 7-segmentsstil på matrisdisplayen.
 - Tre interna habits: habit 1, 2 och 3.
 - Vald habit visas med motsvarande LED.
-- Vänster knapp väljer föregående habit.
-- Höger knapp väljer nästa habit.
+- Vänster knapp minskar vald habits timer med 1 minut.
+- Höger knapp ökar vald habits timer med 1 minut.
 - Play-knapp startar/pausar timern.
-- Långtryck vänster minskar vald habits timer med 1 minut.
-- Långtryck höger ökar vald habits timer med 1 minut.
+- Långtryck vänster väljer föregående habit.
+- Långtryck höger väljer nästa habit.
 - Långtryck play resetar vald habits timer till dess duration.
-- Timer räknar ner från `20:00` till `00:00`.
+- Timer räknar ner från `20` minuter till `00`.
+- När mer än 60 sekunder återstår visas minuter avrundat uppåt. Under sista minuten visas sekunder.
+- Displayens mittpunkter blinkar när timern kör och lyser fast när den är pausad.
 - När timern är klar blinkar vald habits LED.
 - Knapparna använder debounce på ca 40 ms och långtryck på ca 700 ms.
 
 Alla standardpinnar finns i `main/app_config.h` så att de är enkla att ändra.
+Displayen är konfigurerad med `MAX7219_MATRIX_ROTATION_LEFT_90` i `main/app_main.c`.
 
 ## Kopplingar
 
@@ -58,19 +62,26 @@ På macOS är `PORT` ofta något i stil med `/dev/cu.*`, till exempel `/dev/cu.u
 
 ## Verifiering i denna miljö
 
-Build kunde inte köras här eftersom ESP-IDF inte finns i PATH.
+ESP-IDF v5.5.3 installerades lokalt i `~/esp/esp-idf`.
 
-Kommando som kördes:
+Kommandon som kördes:
 
 ```sh
+source "$HOME/esp/esp-idf/export.sh"
+idf.py set-target esp32s3
 idf.py build
+idf.py -p /dev/cu.usbmodem5AF71039601 flash
 ```
 
 Resultat:
 
 ```text
-zsh:1: command not found: idf.py
+Project build complete.
+Done
+Habit tracker started. Displaying 20:00
 ```
+
+Senaste ändringen med tvåsiffrig 7-segments-timer är byggd med `idf.py build`, men inte flashad till kortet ännu.
 
 ## Projektstruktur
 
@@ -89,5 +100,15 @@ sdkconfig.defaults
 ## Komponenter
 
 - `components/max7219_matrix`: liten egen MAX7219 matrix-driver med `clear()`, `set_intensity()` och `draw_time_mm_ss()`.
+- `max7219_matrix_draw_7seg_2_digit(value, leading_zero)` visar `0`-`99`. På en ensam 8x8-matris används ett kompakt 3x7-läge; på bredare kedjade matriser används större 7-segmentsliknande siffror.
 - `components/buttons`: återanvändbar knapphantering med events för `SHORT_PRESS` och `LONG_PRESS`.
 - `components/habit_leds`: enkel GPIO-abstraktion för habit-LEDs, förberedd så att PWM/LEDC kan läggas till senare.
+
+Exempel:
+
+```c
+ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(7, false)); // visar "7"
+ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(7, true));  // visar "07"
+ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(42, true)); // visar "42"
+ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit_clock(20, true, true)); // visar "20" med klockpunkter
+```

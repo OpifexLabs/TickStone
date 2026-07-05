@@ -4,7 +4,7 @@
 
 #include "esp_timer.h"
 
-#define BUTTONS_MAX_COUNT 8
+#define BUTTONS_MAX_COUNT 16
 
 typedef struct {
     gpio_num_t pin;
