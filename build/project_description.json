@@ -1,7 +1,7 @@
 {
     "version":            "1.2",
     "project_name":       "tickstone_oled_test",
-    "project_version":    "6fb09d9-dirty",
+    "project_version":    "817861a-dirty",
     "project_path":       "/Users/allangamal/Documents/GitHub/TickStone",
     "idf_path":           "/Users/allangamal/esp/esp-idf",
     "build_dir":          "/Users/allangamal/Documents/GitHub/TickStone/build",

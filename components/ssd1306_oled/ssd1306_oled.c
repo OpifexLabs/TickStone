@@ -140,8 +140,8 @@ esp_err_t ssd1306_oled_init(const ssd1306_oled_config_t *config)
         0xD3, 0x00, // Display offset
         0x40,       // Start line
         0xAD, 0x8B, // SH1107 DC-DC on
-        0xA0,       // Segment remap flipped
-        0xC0,       // COM scan direction flipped
+        0xA1,       // Segment remap
+        0xC8,       // COM scan direction
         0xDA, 0x12, // COM pins
         0x81, 0x80, // Contrast
         0xD9, 0x22, // Pre-charge
