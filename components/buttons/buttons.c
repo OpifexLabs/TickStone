@@ -102,3 +102,13 @@ bool buttons_poll(button_event_t *event)
 
     return false;
 }
+
+bool buttons_active(void)
+{
+    for (size_t i = 0; i < s_button_count; ++i) {
+        if (s_buttons[i].stable_pressed || s_buttons[i].last_raw_pressed) {
+            return true;
+        }
+    }
+    return false;
+}

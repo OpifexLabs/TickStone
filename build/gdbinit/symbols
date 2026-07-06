@@ -27,4 +27,4 @@ set confirm off
 set confirm on
 
 # Load application symbols
-file /Users/allangamal/Documents/GitHub/TickStone/build/tickstone_oled_test.elf
+file /Users/allangamal/Documents/GitHub/TickStone/build/tickstone.elf

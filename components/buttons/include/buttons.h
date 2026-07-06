@@ -34,6 +34,7 @@ esp_err_t buttons_init(const gpio_num_t *pins,
                        uint32_t long_press_ms);
 
 bool buttons_poll(button_event_t *event);
+bool buttons_active(void);
 
 #ifdef __cplusplus
 }

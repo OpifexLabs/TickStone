@@ -1,0 +1,11 @@
+menu "TickStone"
+
+config TICKSTONE_STORAGE_SELF_TEST
+    bool "Run destructive TickStone NVS storage self-test on boot"
+    default n
+    help
+        Runs a boot-time diagnostic that erases the TickStone NVS namespace,
+        writes logs and an active session, loads them back, and halts after
+        reporting PASS or FAIL over serial. Keep this disabled for normal use.
+
+endmenu

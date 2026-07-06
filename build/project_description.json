@@ -1,15 +1,15 @@
 {
     "version":            "1.2",
-    "project_name":       "tickstone_oled_test",
-    "project_version":    "817861a-dirty",
+    "project_name":       "tickstone",
+    "project_version":    "7bf1957-dirty",
     "project_path":       "/Users/allangamal/Documents/GitHub/TickStone",
     "idf_path":           "/Users/allangamal/esp/esp-idf",
     "build_dir":          "/Users/allangamal/Documents/GitHub/TickStone/build",
     "config_file":        "/Users/allangamal/Documents/GitHub/TickStone/sdkconfig",
     "config_defaults":    "/Users/allangamal/Documents/GitHub/TickStone/sdkconfig.defaults",
     "bootloader_elf":     "/Users/allangamal/Documents/GitHub/TickStone/build/bootloader/bootloader.elf",
-    "app_elf":            "tickstone_oled_test.elf",
-    "app_bin":            "tickstone_oled_test.bin",
+    "app_elf":            "tickstone.elf",
+    "app_bin":            "tickstone.bin",
     "build_type":         "flash_app",
     "git_revision":       "v5.5.3",
     "target":             "esp32c3",
@@ -25,8 +25,8 @@
         "COMPONENT_KCONFIGS_PROJBUILD" : "/Users/allangamal/esp/esp-idf/components/bootloader/Kconfig.projbuild;/Users/allangamal/esp/esp-idf/components/esp_app_format/Kconfig.projbuild;/Users/allangamal/esp/esp-idf/components/esp_rom/Kconfig.projbuild;/Users/allangamal/esp/esp-idf/components/esptool_py/Kconfig.projbuild;/Users/allangamal/esp/esp-idf/components/partition_table/Kconfig.projbuild"
     },
     "common_component_reqs": [ "cxx", "newlib", "freertos", "esp_hw_support", "heap", "log", "soc", "hal", "esp_rom", "esp_common", "esp_system", "riscv" ],
-    "build_components" : [ "app_trace", "app_update", "bootloader", "bootloader_support", "bt", "buttons", "cmock", "console", "cxx", "driver", "efuse", "esp-tls", "esp_adc", "esp_app_format", "esp_bootloader_format", "esp_coex", "esp_common", "esp_driver_ana_cmpr", "esp_driver_bitscrambler", "esp_driver_cam", "esp_driver_dac", "esp_driver_gpio", "esp_driver_gptimer", "esp_driver_i2c", "esp_driver_i2s", "esp_driver_isp", "esp_driver_jpeg", "esp_driver_ledc", "esp_driver_mcpwm", "esp_driver_parlio", "esp_driver_pcnt", "esp_driver_ppa", "esp_driver_rmt", "esp_driver_sdio", "esp_driver_sdm", "esp_driver_sdmmc", "esp_driver_sdspi", "esp_driver_spi", "esp_driver_touch_sens", "esp_driver_tsens", "esp_driver_twai", "esp_driver_uart", "esp_driver_usb_serial_jtag", "esp_eth", "esp_event", "esp_gdbstub", "esp_hal_ieee802154", "esp_hid", "esp_http_client", "esp_http_server", "esp_https_ota", "esp_https_server", "esp_hw_support", "esp_lcd", "esp_local_ctrl", "esp_mm", "esp_netif", "esp_netif_stack", "esp_partition", "esp_phy", "esp_pm", "esp_psram", "esp_ringbuf", "esp_rom", "esp_security", "esp_system", "esp_timer", "esp_vfs_console", "esp_wifi", "espcoredump", "esptool_py", "fatfs", "freertos", "habit_leds", "hal", "heap", "http_parser", "idf_test", "ieee802154", "json", "log", "lwip", "main", "max7219_matrix", "mbedtls", "mqtt", "newlib", "nvs_flash", "nvs_sec_provider", "openthread", "partition_table", "protobuf-c", "protocomm", "pthread", "riscv", "rt", "sdmmc", "soc", "spi_flash", "spiffs", "ssd1306_oled", "tcp_transport", "ulp", "unity", "usb", "vfs", "wear_levelling", "wifi_provisioning", "wpa_supplicant", "" ],
-    "build_component_paths" : [ "/Users/allangamal/esp/esp-idf/components/app_trace", "/Users/allangamal/esp/esp-idf/components/app_update", "/Users/allangamal/esp/esp-idf/components/bootloader", "/Users/allangamal/esp/esp-idf/components/bootloader_support", "/Users/allangamal/esp/esp-idf/components/bt", "/Users/allangamal/Documents/GitHub/TickStone/components/buttons", "/Users/allangamal/esp/esp-idf/components/cmock", "/Users/allangamal/esp/esp-idf/components/console", "/Users/allangamal/esp/esp-idf/components/cxx", "/Users/allangamal/esp/esp-idf/components/driver", "/Users/allangamal/esp/esp-idf/components/efuse", "/Users/allangamal/esp/esp-idf/components/esp-tls", "/Users/allangamal/esp/esp-idf/components/esp_adc", "/Users/allangamal/esp/esp-idf/components/esp_app_format", "/Users/allangamal/esp/esp-idf/components/esp_bootloader_format", "/Users/allangamal/esp/esp-idf/components/esp_coex", "/Users/allangamal/esp/esp-idf/components/esp_common", "/Users/allangamal/esp/esp-idf/components/esp_driver_ana_cmpr", "/Users/allangamal/esp/esp-idf/components/esp_driver_bitscrambler", "/Users/allangamal/esp/esp-idf/components/esp_driver_cam", "/Users/allangamal/esp/esp-idf/components/esp_driver_dac", "/Users/allangamal/esp/esp-idf/components/esp_driver_gpio", "/Users/allangamal/esp/esp-idf/components/esp_driver_gptimer", "/Users/allangamal/esp/esp-idf/components/esp_driver_i2c", "/Users/allangamal/esp/esp-idf/components/esp_driver_i2s", "/Users/allangamal/esp/esp-idf/components/esp_driver_isp", "/Users/allangamal/esp/esp-idf/components/esp_driver_jpeg", "/Users/allangamal/esp/esp-idf/components/esp_driver_ledc", "/Users/allangamal/esp/esp-idf/components/esp_driver_mcpwm", "/Users/allangamal/esp/esp-idf/components/esp_driver_parlio", "/Users/allangamal/esp/esp-idf/components/esp_driver_pcnt", "/Users/allangamal/esp/esp-idf/components/esp_driver_ppa", "/Users/allangamal/esp/esp-idf/components/esp_driver_rmt", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdio", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdm", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdmmc", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdspi", "/Users/allangamal/esp/esp-idf/components/esp_driver_spi", "/Users/allangamal/esp/esp-idf/components/esp_driver_touch_sens", "/Users/allangamal/esp/esp-idf/components/esp_driver_tsens", "/Users/allangamal/esp/esp-idf/components/esp_driver_twai", "/Users/allangamal/esp/esp-idf/components/esp_driver_uart", "/Users/allangamal/esp/esp-idf/components/esp_driver_usb_serial_jtag", "/Users/allangamal/esp/esp-idf/components/esp_eth", "/Users/allangamal/esp/esp-idf/components/esp_event", "/Users/allangamal/esp/esp-idf/components/esp_gdbstub", "/Users/allangamal/esp/esp-idf/components/esp_hal_ieee802154", "/Users/allangamal/esp/esp-idf/components/esp_hid", "/Users/allangamal/esp/esp-idf/components/esp_http_client", "/Users/allangamal/esp/esp-idf/components/esp_http_server", "/Users/allangamal/esp/esp-idf/components/esp_https_ota", "/Users/allangamal/esp/esp-idf/components/esp_https_server", "/Users/allangamal/esp/esp-idf/components/esp_hw_support", "/Users/allangamal/esp/esp-idf/components/esp_lcd", "/Users/allangamal/esp/esp-idf/components/esp_local_ctrl", "/Users/allangamal/esp/esp-idf/components/esp_mm", "/Users/allangamal/esp/esp-idf/components/esp_netif", "/Users/allangamal/esp/esp-idf/components/esp_netif_stack", "/Users/allangamal/esp/esp-idf/components/esp_partition", "/Users/allangamal/esp/esp-idf/components/esp_phy", "/Users/allangamal/esp/esp-idf/components/esp_pm", "/Users/allangamal/esp/esp-idf/components/esp_psram", "/Users/allangamal/esp/esp-idf/components/esp_ringbuf", "/Users/allangamal/esp/esp-idf/components/esp_rom", "/Users/allangamal/esp/esp-idf/components/esp_security", "/Users/allangamal/esp/esp-idf/components/esp_system", "/Users/allangamal/esp/esp-idf/components/esp_timer", "/Users/allangamal/esp/esp-idf/components/esp_vfs_console", "/Users/allangamal/esp/esp-idf/components/esp_wifi", "/Users/allangamal/esp/esp-idf/components/espcoredump", "/Users/allangamal/esp/esp-idf/components/esptool_py", "/Users/allangamal/esp/esp-idf/components/fatfs", "/Users/allangamal/esp/esp-idf/components/freertos", "/Users/allangamal/Documents/GitHub/TickStone/components/habit_leds", "/Users/allangamal/esp/esp-idf/components/hal", "/Users/allangamal/esp/esp-idf/components/heap", "/Users/allangamal/esp/esp-idf/components/http_parser", "/Users/allangamal/esp/esp-idf/components/idf_test", "/Users/allangamal/esp/esp-idf/components/ieee802154", "/Users/allangamal/esp/esp-idf/components/json", "/Users/allangamal/esp/esp-idf/components/log", "/Users/allangamal/esp/esp-idf/components/lwip", "/Users/allangamal/Documents/GitHub/TickStone/main", "/Users/allangamal/Documents/GitHub/TickStone/components/max7219_matrix", "/Users/allangamal/esp/esp-idf/components/mbedtls", "/Users/allangamal/esp/esp-idf/components/mqtt", "/Users/allangamal/esp/esp-idf/components/newlib", "/Users/allangamal/esp/esp-idf/components/nvs_flash", "/Users/allangamal/esp/esp-idf/components/nvs_sec_provider", "/Users/allangamal/esp/esp-idf/components/openthread", "/Users/allangamal/esp/esp-idf/components/partition_table", "/Users/allangamal/esp/esp-idf/components/protobuf-c", "/Users/allangamal/esp/esp-idf/components/protocomm", "/Users/allangamal/esp/esp-idf/components/pthread", "/Users/allangamal/esp/esp-idf/components/riscv", "/Users/allangamal/esp/esp-idf/components/rt", "/Users/allangamal/esp/esp-idf/components/sdmmc", "/Users/allangamal/esp/esp-idf/components/soc", "/Users/allangamal/esp/esp-idf/components/spi_flash", "/Users/allangamal/esp/esp-idf/components/spiffs", "/Users/allangamal/Documents/GitHub/TickStone/components/ssd1306_oled", "/Users/allangamal/esp/esp-idf/components/tcp_transport", "/Users/allangamal/esp/esp-idf/components/ulp", "/Users/allangamal/esp/esp-idf/components/unity", "/Users/allangamal/esp/esp-idf/components/usb", "/Users/allangamal/esp/esp-idf/components/vfs", "/Users/allangamal/esp/esp-idf/components/wear_levelling", "/Users/allangamal/esp/esp-idf/components/wifi_provisioning", "/Users/allangamal/esp/esp-idf/components/wpa_supplicant", "" ],
+    "build_components" : [ "app_trace", "app_update", "bootloader", "bootloader_support", "bt", "buttons", "cmock", "console", "cxx", "driver", "efuse", "esp-tls", "esp_adc", "esp_app_format", "esp_bootloader_format", "esp_coex", "esp_common", "esp_driver_ana_cmpr", "esp_driver_bitscrambler", "esp_driver_cam", "esp_driver_dac", "esp_driver_gpio", "esp_driver_gptimer", "esp_driver_i2c", "esp_driver_i2s", "esp_driver_isp", "esp_driver_jpeg", "esp_driver_ledc", "esp_driver_mcpwm", "esp_driver_parlio", "esp_driver_pcnt", "esp_driver_ppa", "esp_driver_rmt", "esp_driver_sdio", "esp_driver_sdm", "esp_driver_sdmmc", "esp_driver_sdspi", "esp_driver_spi", "esp_driver_touch_sens", "esp_driver_tsens", "esp_driver_twai", "esp_driver_uart", "esp_driver_usb_serial_jtag", "esp_eth", "esp_event", "esp_gdbstub", "esp_hal_ieee802154", "esp_hid", "esp_http_client", "esp_http_server", "esp_https_ota", "esp_https_server", "esp_hw_support", "esp_lcd", "esp_local_ctrl", "esp_mm", "esp_netif", "esp_netif_stack", "esp_partition", "esp_phy", "esp_pm", "esp_psram", "esp_ringbuf", "esp_rom", "esp_security", "esp_system", "esp_timer", "esp_vfs_console", "esp_wifi", "espcoredump", "esptool_py", "fatfs", "freertos", "habit_app", "habit_leds", "habit_storage", "hal", "heap", "http_parser", "idf_test", "ieee802154", "json", "log", "lwip", "main", "max7219_matrix", "mbedtls", "mqtt", "newlib", "nvs_flash", "nvs_sec_provider", "openthread", "partition_table", "protobuf-c", "protocomm", "pthread", "riscv", "rt", "sdmmc", "soc", "spi_flash", "spiffs", "ssd1306_oled", "tcp_transport", "ulp", "unity", "usb", "vfs", "wear_levelling", "wifi_provisioning", "wpa_supplicant", "" ],
+    "build_component_paths" : [ "/Users/allangamal/esp/esp-idf/components/app_trace", "/Users/allangamal/esp/esp-idf/components/app_update", "/Users/allangamal/esp/esp-idf/components/bootloader", "/Users/allangamal/esp/esp-idf/components/bootloader_support", "/Users/allangamal/esp/esp-idf/components/bt", "/Users/allangamal/Documents/GitHub/TickStone/components/buttons", "/Users/allangamal/esp/esp-idf/components/cmock", "/Users/allangamal/esp/esp-idf/components/console", "/Users/allangamal/esp/esp-idf/components/cxx", "/Users/allangamal/esp/esp-idf/components/driver", "/Users/allangamal/esp/esp-idf/components/efuse", "/Users/allangamal/esp/esp-idf/components/esp-tls", "/Users/allangamal/esp/esp-idf/components/esp_adc", "/Users/allangamal/esp/esp-idf/components/esp_app_format", "/Users/allangamal/esp/esp-idf/components/esp_bootloader_format", "/Users/allangamal/esp/esp-idf/components/esp_coex", "/Users/allangamal/esp/esp-idf/components/esp_common", "/Users/allangamal/esp/esp-idf/components/esp_driver_ana_cmpr", "/Users/allangamal/esp/esp-idf/components/esp_driver_bitscrambler", "/Users/allangamal/esp/esp-idf/components/esp_driver_cam", "/Users/allangamal/esp/esp-idf/components/esp_driver_dac", "/Users/allangamal/esp/esp-idf/components/esp_driver_gpio", "/Users/allangamal/esp/esp-idf/components/esp_driver_gptimer", "/Users/allangamal/esp/esp-idf/components/esp_driver_i2c", "/Users/allangamal/esp/esp-idf/components/esp_driver_i2s", "/Users/allangamal/esp/esp-idf/components/esp_driver_isp", "/Users/allangamal/esp/esp-idf/components/esp_driver_jpeg", "/Users/allangamal/esp/esp-idf/components/esp_driver_ledc", "/Users/allangamal/esp/esp-idf/components/esp_driver_mcpwm", "/Users/allangamal/esp/esp-idf/components/esp_driver_parlio", "/Users/allangamal/esp/esp-idf/components/esp_driver_pcnt", "/Users/allangamal/esp/esp-idf/components/esp_driver_ppa", "/Users/allangamal/esp/esp-idf/components/esp_driver_rmt", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdio", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdm", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdmmc", "/Users/allangamal/esp/esp-idf/components/esp_driver_sdspi", "/Users/allangamal/esp/esp-idf/components/esp_driver_spi", "/Users/allangamal/esp/esp-idf/components/esp_driver_touch_sens", "/Users/allangamal/esp/esp-idf/components/esp_driver_tsens", "/Users/allangamal/esp/esp-idf/components/esp_driver_twai", "/Users/allangamal/esp/esp-idf/components/esp_driver_uart", "/Users/allangamal/esp/esp-idf/components/esp_driver_usb_serial_jtag", "/Users/allangamal/esp/esp-idf/components/esp_eth", "/Users/allangamal/esp/esp-idf/components/esp_event", "/Users/allangamal/esp/esp-idf/components/esp_gdbstub", "/Users/allangamal/esp/esp-idf/components/esp_hal_ieee802154", "/Users/allangamal/esp/esp-idf/components/esp_hid", "/Users/allangamal/esp/esp-idf/components/esp_http_client", "/Users/allangamal/esp/esp-idf/components/esp_http_server", "/Users/allangamal/esp/esp-idf/components/esp_https_ota", "/Users/allangamal/esp/esp-idf/components/esp_https_server", "/Users/allangamal/esp/esp-idf/components/esp_hw_support", "/Users/allangamal/esp/esp-idf/components/esp_lcd", "/Users/allangamal/esp/esp-idf/components/esp_local_ctrl", "/Users/allangamal/esp/esp-idf/components/esp_mm", "/Users/allangamal/esp/esp-idf/components/esp_netif", "/Users/allangamal/esp/esp-idf/components/esp_netif_stack", "/Users/allangamal/esp/esp-idf/components/esp_partition", "/Users/allangamal/esp/esp-idf/components/esp_phy", "/Users/allangamal/esp/esp-idf/components/esp_pm", "/Users/allangamal/esp/esp-idf/components/esp_psram", "/Users/allangamal/esp/esp-idf/components/esp_ringbuf", "/Users/allangamal/esp/esp-idf/components/esp_rom", "/Users/allangamal/esp/esp-idf/components/esp_security", "/Users/allangamal/esp/esp-idf/components/esp_system", "/Users/allangamal/esp/esp-idf/components/esp_timer", "/Users/allangamal/esp/esp-idf/components/esp_vfs_console", "/Users/allangamal/esp/esp-idf/components/esp_wifi", "/Users/allangamal/esp/esp-idf/components/espcoredump", "/Users/allangamal/esp/esp-idf/components/esptool_py", "/Users/allangamal/esp/esp-idf/components/fatfs", "/Users/allangamal/esp/esp-idf/components/freertos", "/Users/allangamal/Documents/GitHub/TickStone/components/habit_app", "/Users/allangamal/Documents/GitHub/TickStone/components/habit_leds", "/Users/allangamal/Documents/GitHub/TickStone/components/habit_storage", "/Users/allangamal/esp/esp-idf/components/hal", "/Users/allangamal/esp/esp-idf/components/heap", "/Users/allangamal/esp/esp-idf/components/http_parser", "/Users/allangamal/esp/esp-idf/components/idf_test", "/Users/allangamal/esp/esp-idf/components/ieee802154", "/Users/allangamal/esp/esp-idf/components/json", "/Users/allangamal/esp/esp-idf/components/log", "/Users/allangamal/esp/esp-idf/components/lwip", "/Users/allangamal/Documents/GitHub/TickStone/main", "/Users/allangamal/Documents/GitHub/TickStone/components/max7219_matrix", "/Users/allangamal/esp/esp-idf/components/mbedtls", "/Users/allangamal/esp/esp-idf/components/mqtt", "/Users/allangamal/esp/esp-idf/components/newlib", "/Users/allangamal/esp/esp-idf/components/nvs_flash", "/Users/allangamal/esp/esp-idf/components/nvs_sec_provider", "/Users/allangamal/esp/esp-idf/components/openthread", "/Users/allangamal/esp/esp-idf/components/partition_table", "/Users/allangamal/esp/esp-idf/components/protobuf-c", "/Users/allangamal/esp/esp-idf/components/protocomm", "/Users/allangamal/esp/esp-idf/components/pthread", "/Users/allangamal/esp/esp-idf/components/riscv", "/Users/allangamal/esp/esp-idf/components/rt", "/Users/allangamal/esp/esp-idf/components/sdmmc", "/Users/allangamal/esp/esp-idf/components/soc", "/Users/allangamal/esp/esp-idf/components/spi_flash", "/Users/allangamal/esp/esp-idf/components/spiffs", "/Users/allangamal/Documents/GitHub/TickStone/components/ssd1306_oled", "/Users/allangamal/esp/esp-idf/components/tcp_transport", "/Users/allangamal/esp/esp-idf/components/ulp", "/Users/allangamal/esp/esp-idf/components/unity", "/Users/allangamal/esp/esp-idf/components/usb", "/Users/allangamal/esp/esp-idf/components/vfs", "/Users/allangamal/esp/esp-idf/components/wear_levelling", "/Users/allangamal/esp/esp-idf/components/wifi_provisioning", "/Users/allangamal/esp/esp-idf/components/wpa_supplicant", "" ],
     "build_component_info" : {
         "app_trace": {
             "alias": "idf::app_trace",
@@ -1123,6 +1123,21 @@
             "sources": [ "/Users/allangamal/esp/esp-idf/components/freertos/heap_idf.c", "/Users/allangamal/esp/esp-idf/components/freertos/app_startup.c", "/Users/allangamal/esp/esp-idf/components/freertos/port_common.c", "/Users/allangamal/esp/esp-idf/components/freertos/port_systick.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/list.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/queue.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/tasks.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/timers.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/event_groups.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/stream_buffer.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/riscv/port.c", "/Users/allangamal/esp/esp-idf/components/freertos/FreeRTOS-Kernel/portable/riscv/portasm.S", "/Users/allangamal/esp/esp-idf/components/freertos/esp_additions/freertos_compatibility.c", "/Users/allangamal/esp/esp-idf/components/freertos/esp_additions/idf_additions_event_groups.c", "/Users/allangamal/esp/esp-idf/components/freertos/esp_additions/idf_additions.c" ],
             "include_dirs": [ "config/include", "config/include/freertos", "config/riscv/include", "FreeRTOS-Kernel/include", "FreeRTOS-Kernel/portable/riscv/include", "FreeRTOS-Kernel/portable/riscv/include/freertos", "esp_additions/include" ]
         },
+        "habit_app": {
+            "alias": "idf::habit_app",
+            "target": "___idf_habit_app",
+            "prefix": "idf",
+            "dir": "/Users/allangamal/Documents/GitHub/TickStone/components/habit_app",
+            "type": "LIBRARY",
+            "lib": "__idf_habit_app",
+            "reqs": [],
+            "priv_reqs": [],
+            "managed_reqs": [],
+            "managed_priv_reqs": [],
+            "file": "/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/libhabit_app.a",
+            "sources": [ "/Users/allangamal/Documents/GitHub/TickStone/components/habit_app/habit_app.c" ],
+            "include_dirs": [ "include" ]
+        },
         "habit_leds": {
             "alias": "idf::habit_leds",
             "target": "___idf_habit_leds",
@@ -1136,6 +1151,21 @@
             "managed_priv_reqs": [],
             "file": "/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_leds/libhabit_leds.a",
             "sources": [ "/Users/allangamal/Documents/GitHub/TickStone/components/habit_leds/habit_leds.c" ],
+            "include_dirs": [ "include" ]
+        },
+        "habit_storage": {
+            "alias": "idf::habit_storage",
+            "target": "___idf_habit_storage",
+            "prefix": "idf",
+            "dir": "/Users/allangamal/Documents/GitHub/TickStone/components/habit_storage",
+            "type": "LIBRARY",
+            "lib": "__idf_habit_storage",
+            "reqs": [ "habit_app", "nvs_flash" ],
+            "priv_reqs": [],
+            "managed_reqs": [],
+            "managed_priv_reqs": [],
+            "file": "/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_storage/libhabit_storage.a",
+            "sources": [ "/Users/allangamal/Documents/GitHub/TickStone/components/habit_storage/habit_storage.c", "/Users/allangamal/Documents/GitHub/TickStone/components/habit_storage/habit_storage_plan.c" ],
             "include_dirs": [ "include" ]
         },
         "hal": {
@@ -1265,7 +1295,7 @@
             "dir": "/Users/allangamal/Documents/GitHub/TickStone/main",
             "type": "LIBRARY",
             "lib": "__idf_main",
-            "reqs": [ "ssd1306_oled" ],
+            "reqs": [ "esp_timer", "buttons", "habit_app", "habit_storage", "ssd1306_oled" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],
@@ -2979,7 +3009,7 @@
             "prefix": "idf",
             "dir": "/Users/allangamal/Documents/GitHub/TickStone/main",
             "lib": "__idf_main",
-            "reqs": [ "ssd1306_oled" ],
+            "reqs": [ "esp_timer", "buttons", "habit_app", "habit_storage", "ssd1306_oled" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],
@@ -2997,6 +3027,18 @@
             "managed_priv_reqs": [],
             "include_dirs": [ "include" ]
         },
+        "habit_app": {
+            "alias": "idf::habit_app",
+            "target": "___idf_habit_app",
+            "prefix": "idf",
+            "dir": "/Users/allangamal/Documents/GitHub/TickStone/components/habit_app",
+            "lib": "__idf_habit_app",
+            "reqs": [],
+            "priv_reqs": [],
+            "managed_reqs": [],
+            "managed_priv_reqs": [],
+            "include_dirs": [ "include" ]
+        },
         "habit_leds": {
             "alias": "idf::habit_leds",
             "target": "___idf_habit_leds",
@@ -3004,6 +3046,18 @@
             "dir": "/Users/allangamal/Documents/GitHub/TickStone/components/habit_leds",
             "lib": "__idf_habit_leds",
             "reqs": [ "driver" ],
+            "priv_reqs": [],
+            "managed_reqs": [],
+            "managed_priv_reqs": [],
+            "include_dirs": [ "include" ]
+        },
+        "habit_storage": {
+            "alias": "idf::habit_storage",
+            "target": "___idf_habit_storage",
+            "prefix": "idf",
+            "dir": "/Users/allangamal/Documents/GitHub/TickStone/components/habit_storage",
+            "lib": "__idf_habit_storage",
+            "reqs": [ "habit_app", "nvs_flash" ],
             "priv_reqs": [],
             "managed_reqs": [],
             "managed_priv_reqs": [],

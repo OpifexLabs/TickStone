@@ -1,0 +1,21 @@
+Command: ninja all
+[1/12] Performing build step for 'bootloader'
+[1/1] cd /Users/allangamal/Documents/GitHub/TickStone/build/bootloader/esp-idf/esptool_py && /Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python /Users/allangamal/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 bootloader 0x0 /Users/allangamal/Documents/GitHub/TickStone/build/bootloader/bootloader.bin
+Bootloader binary size 0x51e0 bytes. 0x2e20 bytes (36%) free.
+[2/12] No install step for 'bootloader'
+[3/12] Completed 'bootloader'
+[4/12] Building C object esp-idf/habit_app/CMakeFiles/__idf_habit_app.dir/habit_app.c.obj
+[5/12] Linking C static library esp-idf/habit_app/libhabit_app.a
+[6/12] Linking C static library esp-idf/habit_storage/libhabit_storage.a
+[7/12] Linking C static library esp-idf/main/libmain.a
+[8/12] Generating esp-idf/esp_system/ld/sections.ld
+[9/12] Building C object CMakeFiles/tickstone.elf.dir/project_elf_src_esp32c3.c.obj
+[10/12] Linking CXX executable tickstone.elf
+[11/12] Generating binary image from built executable
+esptool.py v4.12.dev2
+Creating esp32c3 image...
+Merged 1 ELF section
+Successfully created esp32c3 image.
+Generated /Users/allangamal/Documents/GitHub/TickStone/build/tickstone.bin
+[12/12] cd /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/esptool_py && /Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python /Users/allangamal/esp/esp-idf/components/partition_table/check_sizes.py --offset 0x8000 partition --type app /Users/allangamal/Documents/GitHub/TickStone/build/partition_table/partition-table.bin /Users/allangamal/Documents/GitHub/TickStone/build/tickstone.bin
+tickstone.bin binary size 0x398e0 bytes. Smallest app partition is 0x100000 bytes. 0xc6720 bytes (78%) free.

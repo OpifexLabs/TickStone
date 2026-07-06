@@ -2,7 +2,7 @@
 
 #include "driver/gpio.h"
 
-#define APP_NAME "tickstone_oled_test"
+#define APP_NAME "tickstone"
 
 #define HABIT_COUNT 3
 #define DEFAULT_DURATION_SECONDS (20 * 60)
@@ -23,7 +23,7 @@
 #define HABIT_LED_2_PIN GPIO_NUM_16
 #define HABIT_LED_3_PIN GPIO_NUM_17
 
-#define BUTTON_LEFT_PIN GPIO_NUM_7
+#define BUTTON_LEFT_PIN GPIO_NUM_20
 #define BUTTON_PLAY_PIN GPIO_NUM_8
 #define BUTTON_RIGHT_PIN GPIO_NUM_9
 
@@ -32,5 +32,7 @@
 #define TIMER_ADJUST_SECONDS 60
 #define DISPLAY_DOT_BLINK_MS 500
 #define DISPLAY_BOOT_TEST_MS 700
-#define MAIN_LOOP_DELAY_MS 10
+#define BUTTON_ACTIVE_LOOP_DELAY_MS 10
+#define SESSION_LOOP_DELAY_MS 100
+#define IDLE_LOOP_DELAY_MS 150
 #define FINISHED_BLINK_MS 300

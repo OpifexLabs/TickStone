@@ -1,0 +1,78 @@
+Command: /Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python /Users/allangamal/esp/esp-idf/tools/idf_monitor.py -p /dev/cu.usbmodem21201 -b 115200 --toolchain-prefix riscv32-esp-elf- --target esp32c3 --revision 3 --decode-panic backtrace /Users/allangamal/Documents/GitHub/TickStone/build/tickstone.elf /Users/allangamal/Documents/GitHub/TickStone/build/tickstone_oled_test.elf /Users/allangamal/Documents/GitHub/TickStone/build/bootloader/bootloader.elf -m '/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python' '/Users/allangamal/esp/esp-idf/tools/idf.py' '-p' '/dev/cu.usbmodem21201'
+ESP-ROM:esp32c3-api1-20210207
+Build:Feb  7 2021
+rst:0x15 (USB_UART_CHIP_RESET),boot:0x8 (SPI_FAST_FLASH_BOOT)
+Saved PC:0x4004c490
+SPIWP:0xee
+mode:DIO, clock div:1
+load:0x3fcd5820,len:0x155c
+load:0x403cbf10,len:0xc84
+load:0x403ce710,len:0x2fa4
+entry 0x403cbf1a
+[0;32mI (24) boot: ESP-IDF v5.5.3 2nd stage bootloader[0m
+[0;32mI (24) boot: compile time Jun 21 2026 10:35:48[0m
+[0;32mI (25) boot: chip revision: v0.4[0m
+[0;32mI (25) boot: efuse block revision: v1.3[0m
+[0;32mI (28) boot.esp32c3: SPI Speed      : 80MHz[0m
+[0;32mI (32) boot.esp32c3: SPI Mode       : DIO[0m
+[0;32mI (36) boot.esp32c3: SPI Flash Size : 2MB[0m
+[0;32mI (39) boot: Enabling RNG early entropy source...[0m
+[0;32mI (44) boot: Partition Table:[0m
+[0;32mI (46) boot: ## Label            Usage          Type ST Offset   Length[0m
+[0;32mI (53) boot:  0 nvs              WiFi data        01 02 00009000 00006000[0m
+[0;32mI (59) boot:  1 phy_init         RF data          01 01 0000f000 00001000[0m
+[0;32mI (66) boot:  2 factory          factory app      00 00 00010000 00100000[0m
+[0;32mI (72) boot: End of partition table[0m
+[0;32mI (76) esp_image: segment 0: paddr=00010020 vaddr=3c020020 size=0a1b0h ( 41392) map[0m
+[0;32mI (90) esp_image: segment 1: paddr=0001a1d8 vaddr=3fc8d200 size=017f8h (  6136) load[0m
+[0;32mI (91) esp_image: segment 2: paddr=0001b9d8 vaddr=40380000 size=04640h ( 17984) load[0m
+[0;32mI (101) esp_image: segment 3: paddr=00020020 vaddr=42000020 size=1a1f0h (106992) map[0m
+[0;32mI (122) esp_image: segment 4: paddr=0003a218 vaddr=40384640 size=08b24h ( 35620) load[0m
+[0;32mI (129) esp_image: segment 5: paddr=00042d44 vaddr=50000000 size=00020h (    32) load[0m
+[0;32mI (133) boot: Loaded app from partition at offset 0x10000[0m
+[0;32mI (133) boot: Disabling RNG early entropy source...[0m
+[0;32mI (147) cpu_start: Unicore app[0m
+[0;32mI (155) cpu_start: GPIO 20 and 21 are used as console UART I/O pins[0m
+[0;32mI (156) cpu_start: Pro cpu start user code[0m
+[0;32mI (156) cpu_start: cpu freq: 160000000 Hz[0m
+[0;32mI (158) app_init: Application information:[0m
+[0;32mI (161) app_init: Project name:     tickstone[0m
+[0;32mI (165) app_init: App version:      7bf1957-dirty[0m
+[0;32mI (170) app_init: Compile time:     Jul  5 2026 20:50:25[0m
+[0;32mI (175) app_init: ELF file SHA256:  0dff3272a...[0m
+[0;32mI (179) app_init: ESP-IDF:          v5.5.3[0m
+[0;32mI (183) efuse_init: Min chip rev:     v0.3[0m
+[0;32mI (187) efuse_init: Max chip rev:     v1.99 [0m
+[0;32mI (191) efuse_init: Chip rev:         v0.4[0m
+[0;32mI (195) heap_init: Initializing. RAM available for dynamic allocation:[0m
+[0;32mI (201) heap_init: At 3FC8F8D0 len 00030730 (193 KiB): RAM[0m
+[0;32mI (206) heap_init: At 3FCC0000 len 0001C710 (113 KiB): Retention RAM[0m
+[0;32mI (212) heap_init: At 3FCDC710 len 00002950 (10 KiB): Retention RAM[0m
+[0;32mI (218) heap_init: At 50000020 len 00001FC8 (7 KiB): RTCRAM[0m
+[0;32mI (224) spi_flash: detected chip: generic[0m
+[0;32mI (227) spi_flash: flash io: dio[0m
+[0;33mW (230) spi_flash: Detected size(4096k) larger than the size in the binary image header(2048k). Using the size in the binary image header.[0m
+[0;33mW (242) i2c: This driver is an old driver, please migrate your application code to adapt `driver/i2c_master.h`[0m
+[0;32mI (252) sleep_gpio: Configure to isolate all GPIO pins in sleep state[0m
+[0;32mI (258) sleep_gpio: Enable automatic switching of GPIO sleep configuration[0m
+[0;32mI (265) main_task: Started on CPU0[0m
+[0;32mI (265) main_task: Calling app_main()[0m
+Guru Meditation Error: Core  0 panic'ed (Stack protection fault). 
+
+Detected in task "main" at 0x420096fa
+Stack pointer: 0x3fc901f0
+Stack bounds: 0x3fc903c8 - 0x3fc913c0
+
+
+Core  0 register dump:
+MEPC    : 0x420096fc  RA      : 0x42019826  SP      : 0x3fc901f0  GP      : 0x3fc8da00  
+TP      : 0x3fc913c0  T0      : 0xfffff000  T1      : 0x20000000  T2      : 0x00000000  
+S0/FP   : 0x3c023000  S1      : 0x00000003  A0      : 0x00000026  A1      : 0x00000000  
+A2      : 0x00000000  A3      : 0x00000001  A4      : 0x00000000  A5      : 0x00000000  
+A6      : 0x60023000  A7      : 0x0000000a  S2      : 0x00000000  S3      : 0x00000000  
+S4      : 0x00000000  S5      : 0x00000000  S6      : 0x00000000  S7      : 0x00000000  
+S8      : 0x00000000  S9      : 0x00000000  S10     : 0x00000000  S11     : 0x00000000  
+T3      : 0x00000000  T4      : 0x00000000  T5      : 0x00000000  T6      : 0x00000000  
+MSTATUS : 0x00001881  MTVEC   : 0x40380001  MCAUSE  : 0x0000001b  MTVAL   : 0xfe382097  
+MHARTID : 0x00000000  
+

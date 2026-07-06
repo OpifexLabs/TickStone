@@ -1,0 +1,46 @@
+Command: /Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python /Users/allangamal/esp/esp-idf/tools/idf_monitor.py -p /dev/cu.usbmodem21201 -b 115200 --toolchain-prefix riscv32-esp-elf- --target esp32c3 --revision 3 --decode-panic backtrace /Users/allangamal/Documents/GitHub/TickStone/build_selftest/tickstone.elf /Users/allangamal/Documents/GitHub/TickStone/build_selftest/bootloader/bootloader.elf -m '/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/bin/python' '/Users/allangamal/esp/esp-idf/tools/idf.py' '-B' 'build_selftest' '-p' '/dev/cu.usbmodem21201'
+[0;33m--- esp-idf-monitor 1.9.0 on /dev/cu.usbmodem21201 115200[0m
+[0;33m--- Quit: Ctrl+] | Menu: Ctrl+T | Help: Ctrl+T followed by Ctrl+H[0m
+[0m--- 0x40381e34: [0;33mrv_utils_wait_for_intr[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/riscv/include/riscv/rv_utils.h[0m[0m:[1;31m79[0m
+[0m--- (inlined by) [0;33mesp_cpu_wait_for_intr[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/esp_hw_support/cpu.c[0m[0m:[1;31m62[0m
+[0m--- 0x403cbf10: [0;33mesp_bootloader_get_description[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/esp_bootloader_format/esp_bootloader_desc.c[0m[0m:[1;31m39[0m
+[0m--- 0x403ce710: [0;33mesp_flash_encryption_enabled[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/bootloader_support/src/flash_encrypt.c[0m[0m:[1;31m89[0m
+[0m--- 0x403cbf1a: [0;33mcall_start_cpu0[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/bootloader/subproject/main/bootloader_start.c[0m[0m:[1;31m27[0m
+[0m--- 0x42009514: [0;33mrun_storage_self_test[0m[0m at [0;32m/Users/allangamal/Documents/GitHub/TickStone/main/app_main.c[0m[0m:[1;31m123[0m
+[0;33m--- Stack dump detected[0m
+[0m--- 0x42009516: [0;33mrun_storage_self_test[0m[0m at [0;32m/Users/allangamal/Documents/GitHub/TickStone/main/app_main.c[0m[0m:[1;31m124[0m
+[0m--- 0x42009c76: [0;33mapp_main[0m[0m at [0;32m/Users/allangamal/Documents/GitHub/TickStone/main/app_main.c[0m[0m:[1;31m179[0m
+[0m--- 0x40380001: [0;33m_vector_table[0m[0m at [0;32m/Users/allangamal/esp/esp-idf/components/riscv/vectors_intc.S[0m[0m:[1;31m54[0m
+[0m
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/__main__.py", line 4, in <module>
+    main()
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/idf_monitor.py", line 529, in main
+    monitor.main_loop()
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/idf_monitor.py", line 254, in main_loop
+    self._main_loop()
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/idf_monitor.py", line 384, in _main_loop
+    super()._main_loop()
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/idf_monitor.py", line 303, in _main_loop
+    self.serial_handler.handle_serial_input(
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/base/serial_handler.py", line 229, in handle_serial_input
+    self.check_panic_decode_trigger(line_strip)
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_monitor/base/serial_handler.py", line 304, in check_panic_decode_trigger
+    out = self.panic_handler.process_panic_output(self._panic_buffer)
+          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Users/allangamal/.espressif/python_env/idf5.5_py3.11_env/lib/python3.11/site-packages/esp_idf_panic_decoder/panic_output_decoder.py", line 45, in process_panic_output
+    output = subprocess.check_output(cmd, stderr=subprocess.STDOUT)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/subprocess.py", line 465, in check_output
+    return run(*popenargs, stdout=PIPE, timeout=timeout, check=True,
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/subprocess.py", line 546, in run
+    with Popen(*popenargs, **kwargs) as process:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/subprocess.py", line 1022, in __init__
+    self._execute_child(args, executable, preexec_fn, close_fds,
+  File "/Library/Frameworks/Python.framework/Versions/3.11/lib/python3.11/subprocess.py", line 1899, in _execute_child
+    raise child_exception_type(errno_num, err_msg, err_filename)
+FileNotFoundError: [Errno 2] No such file or directory: 'riscv32-esp-elf-gdb'

@@ -151,9 +151,14 @@
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/spiffs/libspiffs.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/wifi_provisioning/libwifi_provisioning.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/json/libjson.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/libbuttons.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/libhabit_app.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_storage/libhabit_storage.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/libhabit_app.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/ssd1306_oled/libssd1306_oled.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/main/libmain.a
-/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/ssd1306_oled/libssd1306_oled.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/libbuttons.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_storage/libhabit_storage.a
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/ssd1306_oled/libssd1306_oled.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_leds/libhabit_leds.a
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/max7219_matrix/libmax7219_matrix.a
