@@ -3,6 +3,7 @@
 
 import argparse
 import html
+import json
 import re
 import sqlite3
 from datetime import date, datetime, timedelta, timezone
@@ -17,6 +18,9 @@ SWEDISH_MONTHS = ("januari", "februari", "mars", "april", "maj", "juni", "juli",
                   "augusti", "september", "oktober", "november", "december")
 DAY_LABELS = ("M", "T", "O", "T", "F", "L", "S")
 PERIODS = ("week", "month", "year", "all")
+TIMELINE_RANGES = ("week", "month", "year")
+SERIES_COLORS = ("#496d55", "#b06f4f", "#5f7296", "#92705f", "#7a6f9b",
+                 "#4f8581", "#b28a3f", "#7d8550", "#965e6d", "#66717a")
 
 
 def _readonly_connection(database):
@@ -63,6 +67,113 @@ def _metadata_status(connection):
         "SELECT 1 FROM events WHERE config_snapshot_id IS NULL LIMIT 1"
     ).fetchone()
     return "mixed" if uncertain else "synced"
+
+
+def _calendar_comparison_bounds(today, period):
+    if period == "week":
+        current_start = today - timedelta(days=today.weekday())
+        current_end = current_start + timedelta(days=7)
+        previous_start = current_start - timedelta(days=7)
+    elif period == "month":
+        current_start = today.replace(day=1)
+        current_end = date(current_start.year + (current_start.month == 12),
+                           1 if current_start.month == 12 else current_start.month + 1, 1)
+        previous_start = date(current_start.year - (current_start.month == 1),
+                              12 if current_start.month == 1 else current_start.month - 1, 1)
+    else:
+        raise ValueError("invalid comparison period")
+    return current_start, current_end, previous_start
+
+
+def _comparison_result(current, previous, period):
+    previous_name = "förra veckan" if period == "week" else "förra månaden"
+    current_name = "den här veckan" if period == "week" else "den här månaden"
+    if previous == 0:
+        if current == 0:
+            return {"current": current, "previous": previous, "percent": 0, "tone": "flat",
+                    "label": f"Samma nivå som {previous_name}"}
+        return {"current": current, "previous": previous, "percent": None, "tone": "up",
+                "label": f"Ny aktivitet {current_name}"}
+    percent = round((current - previous) / previous * 100)
+    tone = "up" if percent > 0 else "down" if percent < 0 else "flat"
+    prefix = "+" if percent > 0 else ""
+    label = f"{prefix}{percent}% jämfört med {previous_name}" if percent else f"Samma nivå som {previous_name}"
+    return {"current": current, "previous": previous, "percent": percent, "tone": tone, "label": label}
+
+
+def _detail_trend_label(current, previous, period):
+    if period == "all":
+        return "Hela den sparade historiken"
+    if period in ("week", "month"):
+        return _comparison_result(current, previous, period)["label"]
+    if previous == 0:
+        return "Ny aktivitet i år" if current else "Samma nivå som förra året"
+    percent = round((current - previous) / previous * 100)
+    if percent == 0:
+        return "Samma nivå som förra året"
+    return f'{"+" if percent > 0 else ""}{percent}% jämfört med förra året'
+
+
+def build_overview_comparisons(database, now_epoch=None):
+    now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
+    _, today = _today(now_epoch)
+    result = {}
+    with _readonly_connection(database) as connection:
+        for period in ("week", "month"):
+            current_start, current_end, previous_start = _calendar_comparison_bounds(today, period)
+            row = connection.execute(
+                """SELECT
+                    SUM(CASE WHEN tickstone_day>=? AND tickstone_day<? THEN 1 ELSE 0 END) AS current_count,
+                    SUM(CASE WHEN tickstone_day>=? AND tickstone_day<? THEN 1 ELSE 0 END) AS previous_count
+                   FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?""",
+                (current_start.isoformat(), current_end.isoformat(), previous_start.isoformat(),
+                 current_start.isoformat(), previous_start.isoformat(), current_end.isoformat()),
+            ).fetchone()
+            result[period] = _comparison_result(row["current_count"] or 0, row["previous_count"] or 0, period)
+    return result
+
+
+def build_timeline(database, timeline_range="month", now_epoch=None):
+    if timeline_range not in TIMELINE_RANGES:
+        raise ValueError("invalid timeline range")
+    now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
+    _, today = _today(now_epoch)
+    if timeline_range == "week":
+        start = today - timedelta(days=today.weekday()); end = start + timedelta(days=7)
+        labels = [(start + timedelta(days=offset)).isoformat() for offset in range(7)]
+        bucket_sql = "tickstone_day"
+    elif timeline_range == "month":
+        start = today.replace(day=1)
+        end = date(start.year + (start.month == 12), 1 if start.month == 12 else start.month + 1, 1)
+        labels = []
+        cursor = start
+        while cursor < end:
+            labels.append(cursor.isoformat()); cursor += timedelta(days=1)
+        bucket_sql = "tickstone_day"
+    else:
+        start = date(today.year, 1, 1); end = date(today.year + 1, 1, 1)
+        labels = [f"{today.year}-{month:02d}" for month in range(1, 13)]
+        bucket_sql = "substr(tickstone_day,1,7)"
+    with _readonly_connection(database) as connection:
+        identities = connection.execute(
+            """SELECT h.slot_id AS id,h.name,h.code FROM habits h WHERE h.active=1
+               UNION SELECT e.habit_id,NULL,NULL FROM events e
+                WHERE e.deleted=0 AND NOT EXISTS(SELECT 1 FROM habits h WHERE h.slot_id=e.habit_id)
+               ORDER BY id"""
+        ).fetchall()
+        rows = connection.execute(
+            f"""SELECT habit_id,{bucket_sql} AS bucket,COUNT(*) AS sessions
+                  FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
+                 GROUP BY habit_id,bucket ORDER BY habit_id,bucket""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+    values = {(row["habit_id"], row["bucket"]): row["sessions"] for row in rows}
+    series = [{"id": row["id"], "name": row["name"] or f"Habit {row['id'] + 1}",
+               "code": row["code"] or "", "color": SERIES_COLORS[row["id"] % len(SERIES_COLORS)],
+               "values": [values.get((row["id"], label), 0) for label in labels]}
+              for row in identities]
+    return {"range": timeline_range, "labels": labels, "series": series,
+            "unit": "aktivitetstillfällen"}
 
 
 def build_dashboard(database, now_epoch=None):
@@ -139,8 +250,9 @@ def build_dashboard(database, now_epoch=None):
                        "metadata_status": row["metadata_status"]})
     week_events = sum(row["events"] for row in daily_rows)
     week_seconds = sum(row["seconds"] for row in daily_rows)
+    comparisons = build_overview_comparisons(database, now_epoch)
     return {"generated_at": f"{now.day} {SWEDISH_MONTHS[now.month - 1]} {now:%Y %H:%M}",
-            "metadata_status": metadata_status,
+            "metadata_status": metadata_status, "comparisons": comparisons,
             "summary": {"today": aggregate.get(today.isoformat(), {"events": 0})["events"],
                         "week": week_events, "minutes": round(week_seconds / 60), "streak": streak},
             "days": days, "habits": habits, "recent": recent}
@@ -248,6 +360,7 @@ def build_habit_detail(database, habit_id, period="week", now_epoch=None):
             "display_unit": unit, "sessions": sessions, "active_days": active_days,
             "average_value": average, "average_unit": average_unit, "current_streak": current_streak,
             "longest_streak": longest_streak, "previous_total": previous_value, "trend": trend,
+            "trend_label": _detail_trend_label(total, previous_value, period),
             "best_day": best["tickstone_day"] if best else None,
             "best_value": best["value"] if best else 0, "best_period": best_period[0],
             "points": points}
@@ -271,13 +384,29 @@ def render_dashboard(model):
         f'<li><a class="habit-row" href="/habit/{item["id"]}?period=week"><span class="habit-mark" aria-hidden="true"></span><span class="habit-copy"><strong>{html.escape(item["name"].title())}</strong><small>{html.escape(item["code"])}</small></span><span class="habit-value"><strong>{html.escape(str(item["display_value"]))}</strong><small>{html.escape(item["display_unit"])}</small></span><span class="row-arrow" aria-hidden="true">›</span></a></li>' for item in model["habits"]
     ) or '<li class="empty">Dina habits visas här efter första synken.</li>'
     recent_html = "".join(f'<li class="recent-row"><div><strong>{html.escape(item["name"].title())}</strong><span>{html.escape(item["kind"])}</span></div><time>{html.escape(item["when"])}</time></li>' for item in model["recent"]) or '<li class="empty">Ingen aktivitet ännu.</li>'
-    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f4f2ed"><title>TickStone</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><main id="content" class="shell"><header class="topbar"><div class="brand"><span class="brand-stone" aria-hidden="true"></span><div><strong>TickStone</strong><span>Din rytm, samlad.</span></div></div><div class="sync-state"><span aria-hidden="true"></span>Synkad <time id="updated">{html.escape(model["generated_at"])}</time></div></header><section class="intro"><p class="eyebrow">ÖVERSIKT</p><h1>Små steg.<br><em>Synliga framsteg.</em></h1><p class="metadata-note">{html.escape(_metadata_note(model["metadata_status"]))}</p></section><section class="metrics" aria-label="Sammanfattning">{cards_html}</section><div class="dashboard-grid"><section class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">SENASTE 7 DAGARNA</p><h2>Aktivitet</h2></div><span>{summary["week"]} totalt</span></div><div class="chart" role="img" aria-label="Aktiviteter per dag">{days_html}</div></section><section class="panel habits-panel"><div class="panel-heading"><div><p class="eyebrow">ALLA HABITS</p><h2>Vanor</h2></div></div><ul class="habit-list">{habits_html}</ul></section><section class="panel recent-panel"><div class="panel-heading"><div><p class="eyebrow">HISTORIK</p><h2>Senaste aktivitet</h2></div></div><ul class="recent-list">{recent_html}</ul></section></div><footer><span>TickStone</span><span>Data stannar på din Pi.</span></footer></main></body></html>'''
+    comparisons_html = "".join(
+        f'<div class="comparison comparison-{item["tone"]}"><span>{"Vecka" if period == "week" else "Månad"}</span>'
+        f'<strong>{html.escape(item["label"])}</strong><small>{item["current"]} nu · {item["previous"]} tidigare</small></div>'
+        for period, item in (("week", model["comparisons"]["week"]), ("month", model["comparisons"]["month"]))
+    )
+    timeline_html = '''<section class="panel timeline-panel" aria-labelledby="timeline-title">
+      <div class="panel-heading timeline-heading"><div><p class="eyebrow">JÄMFÖR HABITS</p><h2 id="timeline-title">Utveckling över tid</h2></div>
+      <div class="range-tabs" role="group" aria-label="Välj tidsperiod">
+        <button type="button" class="range-tab selected" data-range="week" aria-pressed="true">Vecka</button>
+        <button type="button" class="range-tab" data-range="month" aria-pressed="false">Månad</button>
+        <button type="button" class="range-tab" data-range="year" aria-pressed="false">År</button>
+      </div></div>
+      <fieldset id="timeline-series" class="series-toggles" aria-label="Välj habits i linjegrafen"><legend class="sr-only">Välj habits</legend></fieldset>
+      <div id="timeline-chart" class="line-chart" role="img" aria-label="Linjegraf över aktivitetstillfällen"><p class="chart-loading">Laddar utveckling…</p></div>
+      <p class="chart-caption">Varje punkt visar antal aktivitetstillfällen. Välj eller dölj habits ovan.</p>
+    </section>'''
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f4f2ed"><title>TickStone</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><main id="content" class="shell"><header class="topbar"><div class="brand"><span class="brand-stone" aria-hidden="true"></span><div><strong>TickStone</strong><span>Din rytm, samlad.</span></div></div><div class="sync-state"><span aria-hidden="true"></span>Synkad <time id="updated">{html.escape(model["generated_at"])}</time></div></header><section class="intro"><p class="eyebrow">ÖVERSIKT</p><h1>Små steg.<br><em>Synliga framsteg.</em></h1><p class="metadata-note">{html.escape(_metadata_note(model["metadata_status"]))}</p></section><section class="metrics" aria-label="Sammanfattning">{cards_html}</section><section class="comparisons" aria-label="Jämförelse med föregående period">{comparisons_html}</section>{timeline_html}<div class="dashboard-grid"><section class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">SENASTE 7 DAGARNA</p><h2>Aktivitet</h2></div><span>{summary["week"]} totalt</span></div><div class="chart" role="img" aria-label="Aktiviteter per dag">{days_html}</div></section><section class="panel habits-panel"><div class="panel-heading"><div><p class="eyebrow">ALLA HABITS</p><h2>Vanor</h2></div></div><ul class="habit-list">{habits_html}</ul></section><section class="panel recent-panel"><div class="panel-heading"><div><p class="eyebrow">HISTORIK</p><h2>Senaste aktivitet</h2></div></div><ul class="recent-list">{recent_html}</ul></section></div><footer><span>TickStone</span><span>Data stannar på din Pi.</span></footer></main></body></html>'''
 
 
 def render_habit_detail(model):
     habit = model["habit"]
     tabs = "".join(f'<a href="/habit/{habit["id"]}?period={period}" class="period-tab{" selected" if model["period"] == period else ""}"{" aria-current=page" if model["period"] == period else ""}>{label}</a>' for period, label in (("week","Vecka"),("month","Månad"),("year","År"),("all","Allt")))
-    trend = "Ingen jämförelse ännu" if model["trend"] is None else f'{model["trend"]:+d}% mot föregående period'
+    trend = model.get("trend_label") or ("Ingen jämförelse ännu" if model["trend"] is None else f'{model["trend"]:+d}% jämfört med föregående period')
     points = "".join(f'<div class="detail-point" aria-label="{html.escape(point["label"])}: {point["value"]}"><div style="--height:{point["height"]}%"></div><span>{html.escape(point["label"][-5:])}</span></div>' for point in model["points"])
     if not points:
         points = '<p class="empty">Ingen aktivitet under perioden.</p>'
@@ -330,6 +459,13 @@ def make_handler(database):
                         self._send(404, "text/plain; charset=utf-8", b"Not found\n", head)
                     else:
                         self._send(200, "text/html; charset=utf-8", render_habit_detail(model).encode(), head)
+                elif path == "/api/timeline":
+                    timeline_range = parse_qs(parsed.query).get("range", ["month"])[0]
+                    if timeline_range not in TIMELINE_RANGES:
+                        self._send(400, "application/json; charset=utf-8", b'{"error":"invalid range"}\n', head); return
+                    body = (json.dumps(build_timeline(database, timeline_range), ensure_ascii=False,
+                                       separators=(",", ":")) + "\n").encode()
+                    self._send(200, "application/json; charset=utf-8", body, head)
                 elif path == "/healthz":
                     with _readonly_connection(database) as connection: connection.execute("SELECT 1").fetchone()
                     self._send(200, "application/json; charset=utf-8", b'{"status":"ok"}\n', head)

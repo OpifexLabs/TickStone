@@ -19,6 +19,8 @@ from tools.tickstone_dashboard import (  # noqa: E402
     DashboardServer,
     build_dashboard,
     build_habit_detail,
+    build_overview_comparisons,
+    build_timeline,
     make_handler,
     render_dashboard,
     render_habit_detail,
@@ -125,6 +127,7 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["sessions"], 2)
         self.assertEqual(model["previous_total"], 2)
         self.assertEqual(model["trend"], 150)
+        self.assertEqual(model["trend_label"], "+150% jämfört med förra veckan")
         self.assertEqual(model["longest_streak"], 2)
         self.assertEqual(model["average_value"], 2)
 
@@ -138,6 +141,50 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(year["total"], 1)
         self.assertEqual(len(month["points"]), 29)
         self.assertEqual(len(year["points"]), 12)
+    def test_overview_comparisons_are_clear_for_positive_negative_and_zero_baseline(self):
+        for ident, stamp in enumerate(("2026-07-06T08:00:00", "2026-07-07T08:00:00", "2026-07-12T08:00:00"), 30):
+            self.add(ident, 0, "count", stamp, count=1)
+        self.add(40, 0, "count", "2026-06-29T08:00:00", count=1)
+        self.add(41, 0, "count", "2026-07-05T08:00:00", count=1)
+
+        comparisons = build_overview_comparisons(self.database, self.epoch("2026-07-12T12:00:00"))
+
+        self.assertEqual(comparisons["week"], {"current": 3, "previous": 2, "percent": 50,
+                                                "tone": "up", "label": "+50% jämfört med förra veckan"})
+        self.assertEqual(comparisons["month"]["label"], "+300% jämfört med förra månaden")
+
+        empty_database = self.root / "empty.sqlite3"
+        with open_store(empty_database):
+            pass
+        empty = build_overview_comparisons(empty_database, self.epoch("2026-07-12T12:00:00"))
+        self.assertEqual(empty["week"]["label"], "Samma nivå som förra veckan")
+        self.assertEqual(empty["week"]["tone"], "flat")
+
+    def test_timeline_zero_fills_buckets_and_groups_year_by_month(self):
+        self.add(50, 0, "count", "2026-07-06T08:00:00", count=4)
+        self.add(51, 1, "time", "2026-07-06T09:00:00", duration=90)
+        self.add(52, 0, "count", "2026-07-12T08:00:00", count=1)
+        self.add(53, 0, "count", "2026-06-01T08:00:00", count=1)
+
+        week = build_timeline(self.database, "week", self.epoch("2026-07-12T12:00:00"))
+        year = build_timeline(self.database, "year", self.epoch("2026-07-12T12:00:00"))
+
+        self.assertEqual(len(week["labels"]), 7)
+        meditation = next(item for item in week["series"] if item["id"] == 0)
+        self.assertEqual(meditation["values"], [1, 0, 0, 0, 0, 0, 1])
+        fallback = next(item for item in week["series"] if item["id"] == 1)
+        self.assertEqual(fallback["name"], "Habit 2")
+        self.assertEqual(len(year["labels"]), 12)
+        self.assertEqual(next(item for item in year["series"] if item["id"] == 0)["values"][5:7], [1, 2])
+        with self.assertRaises(ValueError):
+            build_timeline(self.database, "decade", self.epoch("2026-07-12T12:00:00"))
+
+    def test_month_comparison_reports_new_activity_without_fake_infinity(self):
+        self.add(60, 0, "count", "2026-07-12T08:00:00", count=1)
+        comparison = build_overview_comparisons(self.database, self.epoch("2026-07-12T12:00:00"))["month"]
+        self.assertEqual(comparison["percent"], None)
+        self.assertEqual(comparison["tone"], "up")
+        self.assertEqual(comparison["label"], "Ny aktivitet den här månaden")
 
 
 class DashboardRenderTest(unittest.TestCase):
@@ -145,6 +192,10 @@ class DashboardRenderTest(unittest.TestCase):
         model = {
             "generated_at": "12 juli 2026 12:00",
             "metadata_status": "synced",
+            "comparisons": {
+                "week": {"current": 3, "previous": 2, "percent": 50, "tone": "up", "label": "+50% jämfört med förra veckan"},
+                "month": {"current": 3, "previous": 0, "percent": None, "tone": "up", "label": "Ny aktivitet den här månaden"},
+            },
             "summary": {"today": 2, "week": 3, "minutes": 2, "streak": 2},
             "days": [{"label": label, "value": index, "height": index * 10} for index, label in enumerate("MTOTFLS")],
             "habits": [{"id": 0, "name": "MEDITATION", "code": "MED", "total": 3, "minutes": 0,
@@ -158,6 +209,10 @@ class DashboardRenderTest(unittest.TestCase):
             self.assertIn(marker, html)
         self.assertIn('/assets/styles.css', html)
         self.assertIn('/assets/app.js', html)
+        self.assertIn('+50% jämfört med förra veckan', html)
+        self.assertIn('id="timeline-chart"', html)
+        self.assertIn('data-range="week"', html)
+        self.assertIn('aria-label="Välj habits i linjegrafen"', html)
         self.assertNotIn('https://', html)
         self.assertNotIn('http://', html)
 
@@ -166,6 +221,9 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("@media (prefers-reduced-motion: reduce)", css)
         self.assertIn(":focus-visible", css)
         self.assertIn("overflow-x: hidden", css)
+        script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
+        self.assertIn("Math.min(4, maximum)", script)
+        self.assertIn("tickCount", script)
 
     def test_detail_render_escapes_metadata_and_has_period_navigation(self):
         model = {"habit": {"id": 0, "code": "<X", "name": "<script>", "type": "count"},
@@ -232,6 +290,17 @@ class DashboardHttpTest(unittest.TestCase):
         status, headers, _ = self.request("POST", "/")
         self.assertEqual(status, 405)
         self.assertEqual(headers["Allow"], "GET, HEAD")
+
+    def test_timeline_api_is_bounded_json_and_read_only(self):
+        before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)
+        status, headers, body = self.request("GET", "/api/timeline?range=year")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        payload = json.loads(body)
+        self.assertEqual(payload["range"], "year")
+        self.assertEqual(len(payload["labels"]), 12)
+        self.assertEqual(self.request("GET", "/api/timeline?range=decade")[0], 400)
+        self.assertEqual((self.database.stat().st_mtime_ns, self.database.stat().st_size), before)
 
     def test_habit_routes_period_validation_and_read_only_http(self):
         before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)
