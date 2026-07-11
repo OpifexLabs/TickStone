@@ -102,6 +102,33 @@ python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone backup
 
 Databasen kan alltid byggas om fran JSONL. Backuper och ra-logg ska inte laggas i Git.
 
+## Lokal statistikdashboard
+
+Dashboarden ar en read-only webbvy over `tickstone.sqlite3`. Den har inga skrivande API:er, inga externa typsnitt, script eller CDN-anrop och ar avsedd enbart for hem-LAN och Tailscale.
+
+- LAN: `http://192.168.86.29:8750`
+- Tailscale: `http://100.111.154.107:8750`
+- Health: `/healthz`
+- Service: `tickstone-dashboard.service`
+- Loggar: `journalctl -u tickstone-dashboard.service`
+
+Installera repo-kontraktet pa Pi:n och begransa LAN-trafiken med UFW:
+
+```sh
+sudo install -o root -g root -m 0644 deploy/tickstone-dashboard.service /etc/systemd/system/tickstone-dashboard.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now tickstone-dashboard.service
+sudo ufw allow from 192.168.86.0/24 to any port 8750 proto tcp comment 'TickStone dashboard from home LAN'
+```
+
+Tailscale ar tillatet genom vardens befintliga `tailscale0`-regel. Oppna inte porten for `Anywhere`, skapa ingen publik tunnel och lagg inte till publik DNS. Tjansten kor som den vanliga anvandaren, oppnar databasen med SQLite `mode=ro`, accepterar endast GET/HEAD och har systemd-hardening. Kontrollera efter uppdatering:
+
+```sh
+systemctl is-active tickstone-dashboard.service
+curl -fsS http://127.0.0.1:8750/healthz
+systemd-analyze security tickstone-dashboard.service --no-pager
+```
+
 ## Data och energi
 
 - Versionerat little-endian-format med CRC, explicit migrering fran tidigare NVS-format och ingen automatisk radering vid NVS-fel.
