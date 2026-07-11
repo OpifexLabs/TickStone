@@ -63,6 +63,45 @@ Utan `--watch` gor kommandot ett enda synkforsok. Nar en logg skapas oppnar Tick
 
 Klockan anvander tidszonen Europe/Stockholm. En TickStone-dag byter vid 05:00 lokal tid. Veckor ar mandag-sondag och manader foljer kalendern, inklusive sommartid.
 
+## Strukturerad historik pa Raspberry Pi
+
+Pi-installationen bevarar tva lager under `~/.local/share/tickstone/`:
+
+- `logs.jsonl` ar den append-only ra-logg som tas emot fran enheten. Den ar aterstallningskallan och skrivs aldrig om av import eller backup.
+- `tickstone.sqlite3` ar en SQLite-databas for framtida statistik. Den har validerade events, index per habit/dag/tid, TickStone-dag beraknad vid 05:00 i `Europe/Stockholm`, aktuella habit-platser och versionsbevarade konfigurationssnapshots.
+
+Starta eller ateruppbygg databasen fran ra-loggen:
+
+```sh
+python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone init
+python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone import-jsonl
+python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone integrity
+```
+
+BLE-lyssnaren skriver bada lagren innan en post kvitteras till TickStone:
+
+```sh
+tools/tickstone_ble_sync.py --watch \
+  --output ~/.local/share/tickstone/logs.jsonl \
+  --database ~/.local/share/tickstone/tickstone.sqlite3
+```
+
+Ett stabilt event-ID ar databasens primarnyckel. Om processen avbryts mellan ra-logg och databas reparerar en omleverans den saknade databasraden utan att duplicera JSONL. Samma ID med ett annat innehall avvisas i stallet for att skriva om historik. Raderade event bevaras med `deleted=1`; de tas inte bort fysiskt.
+
+Habitnamn lagras som snapshots eftersom en stabil plats kan byta namn utan att aldre historik far byta betydelse. Exportera en konfiguration som JSON med formen `{"habits":[{"id":0,"code":"MED","name":"MEDITATION","mode":"time","minutes":10}]}` och registrera den med:
+
+```sh
+python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone record-habits habits.json
+```
+
+Repo-filerna `deploy/tickstone-sync.service`, `deploy/tickstone-backup.service` och `deploy/tickstone-backup.timer` ar de installerade systemd-kontrakten pa Pi:n. Timern gor en daglig SQLite online-backup och en separat kopia av JSONL under `~/.local/share/tickstone/backups/`. Filnamn ar UTC-tidsstampade och en befintlig backup skrivs aldrig over. Manuell backup:
+
+```sh
+python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone backup
+```
+
+Databasen kan alltid byggas om fran JSONL. Backuper och ra-logg ska inte laggas i Git.
+
 ## Data och energi
 
 - Versionerat little-endian-format med CRC, explicit migrering fran tidigare NVS-format och ingen automatisk radering vid NVS-fel.
