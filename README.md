@@ -117,6 +117,13 @@ BLE-metadata versionslagras med giltighetsintervall, och nya event pekar pa snap
 som lastes fore ACK. Aldre importerade event utan snapshot visas som tydligt markerad
 fallback och far inte fabricerad historisk sakerhet.
 
+Oversikten visar explicita kalenderjamforelser, till exempel `+5% jämfört med förra veckan`,
+med separata utfall for oforandrat lage och ny aktivitet nar foregaende period ar noll.
+Den interaktiva linjegrafen kan vaxla mellan vecka, manad och kalenderar. Varje habit kan
+valjas eller doljas; valet bevaras i webblasarsessionen. Grafen jamfor konsekvent antal
+aktivitetstillfallen, medan habitdetaljer fortsatter anvanda habitens riktiga enhet
+(count eller duration). Data levereras read-only fran `/api/timeline?range=week|month|year`.
+
 - LAN: `http://192.168.86.29:8750`
 - Tailscale: `http://100.111.154.107:8750`
 - Health: `/healthz`
