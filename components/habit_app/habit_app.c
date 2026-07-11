@@ -7,7 +7,8 @@
 #define SECONDS_PER_WEEK (7 * SECONDS_PER_DAY)
 #define SECONDS_PER_MONTH (30 * SECONDS_PER_DAY)
 #define DAY_START_OFFSET (HABIT_APP_DAY_START_HOUR * 3600)
-#define CONFIRM_SECONDS 2
+#define COUNT_CONFIRM_SECONDS 2
+#define TIME_CONFIRM_SECONDS 4
 #define MIN_TIMER_MINUTES 1
 #define MAX_TIMER_MINUTES 99
 
@@ -27,12 +28,20 @@ static const habit_config_t *selected_habit_const(const habit_app_t *app)
     return &app->habits[app->selected];
 }
 
-static const char *habit_mode_label(const habit_config_t *habit)
+static const char *habit_mode_name(const habit_config_t *habit)
 {
     if (habit->type == HABIT_TYPE_COUNT) {
-        return "+CNT";
+        return "COUNT";
     }
-    return habit->time_mode == HABIT_TIME_TIMER ? "@TMR" : ">STP";
+    return habit->time_mode == HABIT_TIME_TIMER ? "TIMER" : "STOPWATCH";
+}
+
+static habit_ui_icon_t habit_mode_icon(const habit_config_t *habit)
+{
+    if (habit->type == HABIT_TYPE_COUNT) {
+        return HABIT_UI_ICON_COUNT;
+    }
+    return habit->time_mode == HABIT_TIME_TIMER ? HABIT_UI_ICON_TIMER : HABIT_UI_ICON_STOPWATCH;
 }
 
 static void mark_dirty(habit_app_t *app)
@@ -148,6 +157,17 @@ static const habit_config_t *habit_by_id(const habit_app_t *app, uint8_t habit_i
     return NULL;
 }
 
+static bool select_habit_by_id(habit_app_t *app, uint8_t habit_id)
+{
+    for (size_t i = 0; i < app->habit_count; ++i) {
+        if (app->habits[i].id == habit_id) {
+            app->selected = i;
+            return true;
+        }
+    }
+    return false;
+}
+
 static const habit_log_t *time_log_at_view_index(const habit_app_t *app, size_t view_index)
 {
     size_t seen = 0;
@@ -230,7 +250,8 @@ static void log_count_event(habit_app_t *app, int64_t now_seconds)
     });
 
     app->screen = HABIT_SCREEN_CONFIRM;
-    app->confirm_until = now_seconds + CONFIRM_SECONDS;
+    app->confirm_until = now_seconds + COUNT_CONFIRM_SECONDS;
+    app->timer_completed = false;
     mark_dirty(app);
 }
 
@@ -254,13 +275,14 @@ static void start_time_session(habit_app_t *app, int64_t now_seconds)
     app->session_paused_at = 0;
     app->session_paused_total = 0;
     app->timer_seconds = habit->time_mode == HABIT_TIME_TIMER ? app->setup_minutes * 60 : 0;
+    app->timer_completed = false;
     app->screen = HABIT_SCREEN_SESSION;
     app->session_dirty = true;
     app->last_session_tick_second = now_seconds;
     mark_dirty(app);
 }
 
-static void save_time_session(habit_app_t *app, int64_t now_seconds)
+static void save_time_session(habit_app_t *app, int64_t now_seconds, bool completed_automatically)
 {
     if (!app->session_active) {
         return;
@@ -268,11 +290,16 @@ static void save_time_session(habit_app_t *app, int64_t now_seconds)
 
     const habit_config_t *habit = selected_habit_const(app);
     uint32_t duration = elapsed_session_seconds(app, now_seconds);
+    int64_t timestamp_end = now_seconds;
+    if (habit->time_mode == HABIT_TIME_TIMER && duration >= app->timer_seconds) {
+        duration = app->timer_seconds;
+        timestamp_end = app->session_start + app->session_paused_total + duration;
+    }
     append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_TIME,
         .timestamp_start = app->session_start,
-        .timestamp_end = now_seconds,
+        .timestamp_end = timestamp_end,
         .duration_seconds = duration,
         .count_value = 0,
         .synced = false,
@@ -281,8 +308,10 @@ static void save_time_session(habit_app_t *app, int64_t now_seconds)
 
     app->session_active = false;
     app->session_paused = false;
+    app->timer_completed = completed_automatically;
+    app->completion_sequence++;
     app->screen = HABIT_SCREEN_CONFIRM;
-    app->confirm_until = now_seconds + CONFIRM_SECONDS;
+    app->confirm_until = now_seconds + TIME_CONFIRM_SECONDS;
     app->session_dirty = true;
     app->last_session_tick_second = -1;
     mark_dirty(app);
@@ -292,6 +321,7 @@ static void cancel_session(habit_app_t *app)
 {
     app->session_active = false;
     app->session_paused = false;
+    app->timer_completed = false;
     app->screen = HABIT_SCREEN_SELECT;
     app->session_dirty = true;
     app->last_session_tick_second = -1;
@@ -430,6 +460,17 @@ void habit_app_tick(habit_app_t *app, int64_t now_seconds)
         mark_dirty(app);
     }
 
+    if (app->screen == HABIT_SCREEN_SESSION && app->session_active) {
+        const habit_config_t *habit = selected_habit_const(app);
+        if (habit->type == HABIT_TYPE_TIME &&
+            habit->time_mode == HABIT_TIME_TIMER &&
+            !app->session_paused &&
+            elapsed_session_seconds(app, now_seconds) >= app->timer_seconds) {
+            save_time_session(app, now_seconds, true);
+            return;
+        }
+    }
+
     if (app->screen == HABIT_SCREEN_SESSION && now_seconds != app->last_session_tick_second) {
         app->last_session_tick_second = now_seconds;
         mark_dirty(app);
@@ -444,6 +485,10 @@ void habit_app_handle_button(habit_app_t *app,
     habit_config_t *habit = selected_habit(app);
 
     if (app->screen == HABIT_SCREEN_CONFIRM && button == HABIT_BUTTON_OK && press == HABIT_PRESS_LONG) {
+        undo_last_log(app);
+        return;
+    }
+    if (app->screen == HABIT_SCREEN_CONFIRM && button == HABIT_BUTTON_LEFT && press == HABIT_PRESS_SHORT) {
         undo_last_log(app);
         return;
     }
@@ -480,7 +525,13 @@ void habit_app_handle_button(habit_app_t *app,
             } else if (button == HABIT_BUTTON_RIGHT) {
                 next_time_log(app, 1);
             } else if (button == HABIT_BUTTON_OK) {
-                app->home_mode = HABIT_HOME_ACTION;
+                const habit_log_t *log = time_log_at_view_index(app, app->log_view_index);
+                if (log != NULL && select_habit_by_id(app, log->habit_id)) {
+                    app->screen = HABIT_SCREEN_STATS;
+                    app->stat_view = HABIT_STAT_WEEK_TOTAL;
+                } else {
+                    app->home_mode = HABIT_HOME_ACTION;
+                }
                 mark_dirty(app);
             }
         } else if (press == HABIT_PRESS_LONG && button == HABIT_BUTTON_OK) {
@@ -519,8 +570,13 @@ void habit_app_handle_button(habit_app_t *app,
     case HABIT_SCREEN_SESSION:
         if (button == HABIT_BUTTON_LEFT && press == HABIT_PRESS_LONG) {
             cancel_session(app);
+        } else if (button == HABIT_BUTTON_LEFT && press == HABIT_PRESS_SHORT) {
+            app->screen = HABIT_SCREEN_CANCEL_CONFIRM;
+            mark_dirty(app);
+        } else if (button == HABIT_BUTTON_RIGHT) {
+            save_time_session(app, now_seconds, false);
         } else if (button == HABIT_BUTTON_OK && press == HABIT_PRESS_LONG) {
-            save_time_session(app, now_seconds);
+            save_time_session(app, now_seconds, false);
         } else if (button == HABIT_BUTTON_OK && press == HABIT_PRESS_SHORT) {
             if (app->session_paused) {
                 app->session_paused_total += (uint32_t)(now_seconds - app->session_paused_at);
@@ -530,6 +586,15 @@ void habit_app_handle_button(habit_app_t *app,
                 app->session_paused_at = now_seconds;
             }
             app->session_dirty = true;
+            mark_dirty(app);
+        }
+        break;
+
+    case HABIT_SCREEN_CANCEL_CONFIRM:
+        if (button == HABIT_BUTTON_RIGHT) {
+            cancel_session(app);
+        } else if (button == HABIT_BUTTON_LEFT || button == HABIT_BUTTON_OK) {
+            app->screen = HABIT_SCREEN_SESSION;
             mark_dirty(app);
         }
         break;
@@ -632,6 +697,11 @@ bool habit_app_get_log(const habit_app_t *app, size_t index, habit_log_t *out)
 int habit_app_last_log_index(const habit_app_t *app)
 {
     return app->last_log_index;
+}
+
+uint32_t habit_app_completion_sequence(const habit_app_t *app)
+{
+    return app == NULL ? 0 : app->completion_sequence;
 }
 
 bool habit_app_export_session(const habit_app_t *app, habit_session_snapshot_t *out)
@@ -828,39 +898,94 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
 
     memset(screen, 0, sizeof(*screen));
     screen->id = app->screen;
+    screen->home_mode = app->home_mode;
     const habit_config_t *habit = selected_habit_const(app);
 
     switch (app->screen) {
     case HABIT_SCREEN_SELECT:
+        screen->show_home_nav = true;
+        screen->left_action = HABIT_UI_ICON_LEFT;
+        screen->right_action = HABIT_UI_ICON_RIGHT;
         if (app->home_mode == HABIT_HOME_HABITS) {
-            snprintf(screen->primary, sizeof(screen->primary), "HAB");
-            snprintf(screen->secondary, sizeof(screen->secondary), "%s%s", habit->label, habit_mode_label(habit));
+            screen->icon = HABIT_UI_ICON_HABITS;
+            screen->ok_action = HABIT_UI_ICON_EDIT;
+            snprintf(screen->header, sizeof(screen->header), "EDIT HABIT");
+            snprintf(screen->primary, sizeof(screen->primary), "%s", habit->label);
+            if (habit->type == HABIT_TYPE_TIME && habit->time_mode == HABIT_TIME_TIMER) {
+                snprintf(screen->secondary, sizeof(screen->secondary), "TIMER %u MIN", habit->default_minutes);
+            } else {
+                snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit_mode_name(habit));
+            }
+            snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
+                     (unsigned)(app->selected + 1),
+                     (unsigned)app->habit_count);
         } else if (app->home_mode == HABIT_HOME_LOGS) {
             const habit_log_t *log = time_log_at_view_index(app, app->log_view_index);
+            size_t log_count = time_log_count(app);
+            screen->icon = log == NULL ? HABIT_UI_ICON_EMPTY : HABIT_UI_ICON_LOGS;
+            screen->ok_action = log == NULL ? HABIT_UI_ICON_HOME : HABIT_UI_ICON_CHART;
+            snprintf(screen->header, sizeof(screen->header), "TIME LOGS");
             if (log == NULL) {
-                snprintf(screen->primary, sizeof(screen->primary), "LOG");
-                snprintf(screen->secondary, sizeof(screen->secondary), "EMPTY");
+                snprintf(screen->primary, sizeof(screen->primary), "EMPTY");
+                snprintf(screen->secondary, sizeof(screen->secondary), "NO TIME LOGS");
             } else {
                 const habit_config_t *log_habit = habit_by_id(app, log->habit_id);
                 const char *label = log_habit == NULL ? "???" : log_habit->label;
                 format_duration(log->duration_seconds, screen->primary, sizeof(screen->primary));
-                snprintf(screen->secondary, sizeof(screen->secondary), "<%s>", label);
+                snprintf(screen->secondary, sizeof(screen->secondary), "%s TIME", label);
+                snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
+                         (unsigned)(app->log_view_index + 1),
+                         (unsigned)log_count);
             }
         } else {
-            snprintf(screen->primary, sizeof(screen->primary), "<%s>", habit->label);
-            snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit_mode_label(habit));
+            screen->icon = habit_mode_icon(habit);
+            screen->ok_action = habit->type == HABIT_TYPE_COUNT ? HABIT_UI_ICON_PLUS : HABIT_UI_ICON_PLAY;
+            snprintf(screen->header, sizeof(screen->header), "ACTION");
+            snprintf(screen->primary, sizeof(screen->primary), "%s", habit->label);
+            if (habit->type == HABIT_TYPE_TIME && habit->time_mode == HABIT_TIME_TIMER) {
+                snprintf(screen->secondary, sizeof(screen->secondary), "%u MIN TIMER", habit->default_minutes);
+            } else {
+                snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit_mode_name(habit));
+            }
+            snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
+                     (unsigned)(app->selected + 1),
+                     (unsigned)app->habit_count);
         }
         break;
 
-    case HABIT_SCREEN_CONFIRM:
-        snprintf(screen->primary, sizeof(screen->primary), "%s", app->last_log_index >= 0 &&
-                 app->logs[app->last_log_index].type == HABIT_TYPE_COUNT ? "+1" : "SAV");
-        snprintf(screen->secondary, sizeof(screen->secondary), "UNDO");
+    case HABIT_SCREEN_CONFIRM: {
+        const habit_log_t *log = app->last_log_index >= 0 ? &app->logs[app->last_log_index] : NULL;
+        bool count_log = log != NULL && log->type == HABIT_TYPE_COUNT;
+        const habit_config_t *log_habit = log == NULL ? habit : habit_by_id(app, log->habit_id);
+        screen->icon = HABIT_UI_ICON_CHECK;
+        screen->left_action = HABIT_UI_ICON_UNDO;
+        screen->ok_action = count_log ? HABIT_UI_ICON_PLUS : HABIT_UI_ICON_HOME;
+        snprintf(screen->header,
+                 sizeof(screen->header),
+                 "%s",
+                 count_log ? "LOGGED" : app->timer_completed ? "TIMER DONE" : "SAVED");
+        if (count_log) {
+            snprintf(screen->primary, sizeof(screen->primary), "+1");
+        } else if (log != NULL) {
+            format_duration(log->duration_seconds, screen->primary, sizeof(screen->primary));
+        } else {
+            snprintf(screen->primary, sizeof(screen->primary), "DONE");
+        }
+        snprintf(screen->secondary, sizeof(screen->secondary), "%s %s",
+                 log_habit == NULL ? "???" : log_habit->label,
+                 count_log ? "COUNT" : "TIME");
         break;
+    }
 
     case HABIT_SCREEN_TIMER_SETUP:
-        snprintf(screen->primary, sizeof(screen->primary), "%luM", (unsigned long)app->setup_minutes);
-        snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit->label);
+        screen->icon = HABIT_UI_ICON_TIMER;
+        screen->left_action = HABIT_UI_ICON_MINUS;
+        screen->ok_action = HABIT_UI_ICON_PLAY;
+        screen->right_action = HABIT_UI_ICON_PLUS;
+        snprintf(screen->header, sizeof(screen->header), "SET TIMER");
+        snprintf(screen->primary, sizeof(screen->primary), "%lu", (unsigned long)app->setup_minutes);
+        snprintf(screen->secondary, sizeof(screen->secondary), "MINUTES");
+        snprintf(screen->meta, sizeof(screen->meta), "%s", habit->label);
         break;
 
     case HABIT_SCREEN_SESSION: {
@@ -869,22 +994,46 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         if (habit->time_mode == HABIT_TIME_TIMER) {
             shown = elapsed >= app->timer_seconds ? 0 : app->timer_seconds - elapsed;
         }
+        screen->icon = habit_mode_icon(habit);
+        screen->left_action = HABIT_UI_ICON_CLOSE;
+        screen->ok_action = app->session_paused ? HABIT_UI_ICON_PLAY : HABIT_UI_ICON_PAUSE;
+        screen->right_action = HABIT_UI_ICON_CHECK;
+        snprintf(screen->header, sizeof(screen->header), "%s %s", habit->label, habit_mode_name(habit));
         format_live_duration(shown, screen->primary, sizeof(screen->primary));
-        snprintf(screen->secondary, sizeof(screen->secondary), "%s", app->session_paused ? "PAU" : habit->label);
+        snprintf(screen->secondary, sizeof(screen->secondary), "%s", app->session_paused ? "PAUSED" : "RUNNING");
         break;
     }
 
+    case HABIT_SCREEN_CANCEL_CONFIRM:
+        screen->icon = HABIT_UI_ICON_CLOSE;
+        screen->left_action = HABIT_UI_ICON_BACK;
+        screen->right_action = HABIT_UI_ICON_CLOSE;
+        snprintf(screen->header, sizeof(screen->header), "CANCEL SESSION");
+        snprintf(screen->primary, sizeof(screen->primary), "CANCEL?");
+        snprintf(screen->secondary, sizeof(screen->secondary), "TIME NOT SAVED");
+        break;
+
     case HABIT_SCREEN_STATS: {
         uint32_t total = habit_app_stat_total(app, habit->id, app->stat_view, now_seconds);
-        const char *prefix = "W";
+        const char *heading = "THIS WEEK";
         if (app->stat_view == HABIT_STAT_WEEK_DELTA) {
-            prefix = "DIF";
+            heading = "VS LAST WEEK";
         } else if (app->stat_view == HABIT_STAT_MONTH_TOTAL) {
-            prefix = "MON";
+            heading = "THIS MONTH";
         } else if (app->stat_view == HABIT_STAT_WEEK_AVG) {
-            prefix = "AVG";
+            heading = "DAILY AVERAGE";
         }
-        snprintf(screen->secondary, sizeof(screen->secondary), "%s", prefix);
+        screen->icon = HABIT_UI_ICON_CHART;
+        screen->left_action = HABIT_UI_ICON_LEFT;
+        screen->ok_action = HABIT_UI_ICON_HOME;
+        screen->right_action = HABIT_UI_ICON_RIGHT;
+        snprintf(screen->header, sizeof(screen->header), "%s", heading);
+        snprintf(screen->secondary, sizeof(screen->secondary), "%s %s",
+                 habit->label,
+                 habit->type == HABIT_TYPE_COUNT ? "COUNT" : "TIME");
+        snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
+                 (unsigned)(app->stat_view + 1),
+                 (unsigned)HABIT_STAT_COUNT);
         if (app->stat_view == HABIT_STAT_WEEK_DELTA) {
             int32_t delta = habit_app_stat_week_delta(app, habit->id, now_seconds);
             char sign = delta >= 0 ? '+' : '-';

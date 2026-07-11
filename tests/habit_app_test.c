@@ -42,8 +42,12 @@ static void test_navigation_wraps_between_habits(void)
     habit_app_init(&app);
 
     const habit_screen_t *screen = habit_app_screen(&app, 99);
-    assert(strcmp(screen->primary, "<STR>") == 0);
-    assert(strcmp(screen->secondary, "+CNT") == 0);
+    assert(strcmp(screen->header, "ACTION") == 0);
+    assert(strcmp(screen->primary, "STR") == 0);
+    assert(strcmp(screen->secondary, "COUNT") == 0);
+    assert(screen->icon == HABIT_UI_ICON_COUNT);
+    assert(screen->ok_action == HABIT_UI_ICON_PLUS);
+    assert(screen->show_home_nav);
 
     press(&app, HABIT_BUTTON_LEFT, 100);
     assert(strcmp(app.habits[app.selected].label, "STA") == 0);
@@ -59,14 +63,17 @@ static void test_home_modes_habits_and_logs(void)
     long_press(&app, HABIT_BUTTON_LEFT, 100);
     assert(app.home_mode == HABIT_HOME_HABITS);
     const habit_screen_t *screen = habit_app_screen(&app, 100);
-    assert(strcmp(screen->primary, "HAB") == 0);
-    assert(strcmp(screen->secondary, "STR+CNT") == 0);
+    assert(strcmp(screen->header, "EDIT HABIT") == 0);
+    assert(strcmp(screen->primary, "STR") == 0);
+    assert(strcmp(screen->secondary, "COUNT") == 0);
+    assert(screen->icon == HABIT_UI_ICON_HABITS);
+    assert(screen->ok_action == HABIT_UI_ICON_EDIT);
 
     press(&app, HABIT_BUTTON_OK, 101);
     assert(app.habits[app.selected].type == HABIT_TYPE_TIME);
     assert(app.habits[app.selected].time_mode == HABIT_TIME_TIMER);
     screen = habit_app_screen(&app, 101);
-    assert(strcmp(screen->secondary, "STR@TMR") == 0);
+    assert(strcmp(screen->secondary, "TIMER 10 MIN") == 0);
 
     size_t before_add = app.habit_count;
     long_press(&app, HABIT_BUTTON_OK, 102);
@@ -79,8 +86,11 @@ static void test_home_modes_habits_and_logs(void)
     long_press(&app, HABIT_BUTTON_RIGHT, 104);
     assert(app.home_mode == HABIT_HOME_LOGS);
     screen = habit_app_screen(&app, 104);
-    assert(strcmp(screen->primary, "LOG") == 0);
-    assert(strcmp(screen->secondary, "EMPTY") == 0);
+    assert(strcmp(screen->header, "TIME LOGS") == 0);
+    assert(strcmp(screen->primary, "EMPTY") == 0);
+    assert(strcmp(screen->secondary, "NO TIME LOGS") == 0);
+    assert(screen->icon == HABIT_UI_ICON_EMPTY);
+    assert(screen->ok_action == HABIT_UI_ICON_HOME);
 
     press(&app, HABIT_BUTTON_LEFT, 105);
     assert(app.home_mode == HABIT_HOME_ACTION);
@@ -100,22 +110,27 @@ static void test_log_home_shows_time_logs(void)
     press(&app, HABIT_BUTTON_OK, 101);
     press(&app, HABIT_BUTTON_OK, 102);
     long_press(&app, HABIT_BUTTON_OK, 162);
-    habit_app_tick(&app, 165);
-    press(&app, HABIT_BUTTON_RIGHT, 166);
-    press(&app, HABIT_BUTTON_OK, 167);
-    long_press(&app, HABIT_BUTTON_OK, 197);
-    habit_app_tick(&app, 200);
+    habit_app_tick(&app, 166);
+    press(&app, HABIT_BUTTON_RIGHT, 167);
+    press(&app, HABIT_BUTTON_OK, 168);
+    long_press(&app, HABIT_BUTTON_OK, 198);
+    habit_app_tick(&app, 202);
 
-    long_press(&app, HABIT_BUTTON_RIGHT, 201);
+    long_press(&app, HABIT_BUTTON_RIGHT, 203);
     assert(app.home_mode == HABIT_HOME_LOGS);
-    const habit_screen_t *screen = habit_app_screen(&app, 201);
+    const habit_screen_t *screen = habit_app_screen(&app, 203);
     assert(strcmp(screen->primary, "30S") == 0);
-    assert(strcmp(screen->secondary, "<STA>") == 0);
+    assert(strcmp(screen->secondary, "STA TIME") == 0);
+    assert(screen->ok_action == HABIT_UI_ICON_CHART);
 
-    press(&app, HABIT_BUTTON_RIGHT, 202);
-    screen = habit_app_screen(&app, 202);
+    press(&app, HABIT_BUTTON_RIGHT, 204);
+    screen = habit_app_screen(&app, 204);
     assert(strcmp(screen->primary, "1M") == 0);
-    assert(strcmp(screen->secondary, "<MED>") == 0);
+    assert(strcmp(screen->secondary, "MED TIME") == 0);
+
+    press(&app, HABIT_BUTTON_OK, 205);
+    assert(app.screen == HABIT_SCREEN_STATS);
+    assert(strcmp(app.habits[app.selected].label, "MED") == 0);
 }
 
 static void test_set_ten_habits_and_validate_labels(void)
@@ -195,6 +210,30 @@ static void test_timer_cancel(void)
     assert(app.screen == HABIT_SCREEN_SELECT);
 }
 
+static void test_session_cancel_confirmation_and_visible_save(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+
+    press(&app, HABIT_BUTTON_RIGHT, 100);
+    press(&app, HABIT_BUTTON_RIGHT, 101);
+    press(&app, HABIT_BUTTON_OK, 102);
+    press(&app, HABIT_BUTTON_LEFT, 110);
+    assert(app.screen == HABIT_SCREEN_CANCEL_CONFIRM);
+
+    const habit_screen_t *screen = habit_app_screen(&app, 110);
+    assert(strcmp(screen->primary, "CANCEL?") == 0);
+    assert(screen->left_action == HABIT_UI_ICON_BACK);
+    assert(screen->right_action == HABIT_UI_ICON_CLOSE);
+
+    press(&app, HABIT_BUTTON_OK, 111);
+    assert(app.screen == HABIT_SCREEN_SESSION);
+    press(&app, HABIT_BUTTON_RIGHT, 120);
+    assert(app.screen == HABIT_SCREEN_CONFIRM);
+    assert(app.log_count == 1);
+    assert(app.logs[0].duration_seconds == 18);
+}
+
 static void test_stopwatch_cancel_and_save(void)
 {
     habit_app_t app;
@@ -245,6 +284,42 @@ static void test_timer_screen_shows_countdown_seconds(void)
     assert(strcmp(screen->primary, "9:55") == 0);
 }
 
+static void test_timer_finishes_and_logs_exact_duration(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+    const habit_config_t habit = {
+        .id = 7,
+        .label = "TST",
+        .type = HABIT_TYPE_TIME,
+        .time_mode = HABIT_TIME_TIMER,
+        .default_minutes = 1,
+    };
+    assert(habit_app_set_habits(&app, &habit, 1));
+
+    press(&app, HABIT_BUTTON_OK, 100);
+    press(&app, HABIT_BUTTON_OK, 101);
+    assert(app.screen == HABIT_SCREEN_SESSION);
+
+    habit_app_tick(&app, 162);
+    assert(!app.session_active);
+    assert(app.screen == HABIT_SCREEN_CONFIRM);
+    assert(app.timer_completed);
+    assert(app.log_count == 1);
+    assert(app.logs[0].duration_seconds == 60);
+    assert(app.logs[0].timestamp_end == 161);
+    assert(habit_app_completion_sequence(&app) == 1);
+
+    const habit_screen_t *screen = habit_app_screen(&app, 162);
+    assert(strcmp(screen->header, "TIMER DONE") == 0);
+    assert(strcmp(screen->primary, "1M") == 0);
+
+    habit_app_tick(&app, 165);
+    assert(app.screen == HABIT_SCREEN_CONFIRM);
+    habit_app_tick(&app, 166);
+    assert(app.screen == HABIT_SCREEN_SELECT);
+}
+
 static void test_stats(void)
 {
     habit_app_t app;
@@ -273,7 +348,8 @@ static void test_stats_navigation_and_signed_delta_screen(void)
     assert(app.stat_view == HABIT_STAT_WEEK_DELTA);
 
     const habit_screen_t *screen = habit_app_screen(&app, 7 * 3600 + 1);
-    assert(strcmp(screen->secondary, "DIF") == 0);
+    assert(strcmp(screen->header, "VS LAST WEEK") == 0);
+    assert(strcmp(screen->secondary, "STR COUNT") == 0);
     assert(strcmp(screen->primary, "+1") == 0);
 
     press(&app, HABIT_BUTTON_LEFT, 7 * 3600 + 2);
@@ -317,9 +393,11 @@ int main(void)
     test_set_ten_habits_and_validate_labels();
     test_timer_flow();
     test_timer_cancel();
+    test_session_cancel_confirmation_and_visible_save();
     test_stopwatch_cancel_and_save();
     test_session_screen_shows_seconds();
     test_timer_screen_shows_countdown_seconds();
+    test_timer_finishes_and_logs_exact_duration();
     test_stats();
     test_stats_navigation_and_signed_delta_screen();
     test_session_restore();

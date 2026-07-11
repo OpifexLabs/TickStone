@@ -120,6 +120,7 @@
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/usb/cmake_install.cmake",
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/wifi_provisioning/cmake_install.cmake",
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/cmake_install.cmake",
+		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/cmake_install.cmake",
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/cmake_install.cmake",
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_storage/cmake_install.cmake",
 		"/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/ssd1306_oled/cmake_install.cmake",

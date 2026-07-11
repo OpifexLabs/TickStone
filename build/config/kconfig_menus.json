@@ -5864,6 +5864,24 @@
     {
         "children": [
             {
+                "children": [],
+                "depends_on": null,
+                "help": "Runs a boot-time diagnostic that erases the TickStone NVS namespace,\nwrites logs and an active session, loads them back, and halts after\nreporting PASS or FAIL over serial. Keep this disabled for normal use.",
+                "id": "TICKSTONE_STORAGE_SELF_TEST",
+                "name": "TICKSTONE_STORAGE_SELF_TEST",
+                "range": null,
+                "title": "Run destructive TickStone NVS storage self-test on boot",
+                "type": "bool"
+            }
+        ],
+        "depends_on": null,
+        "id": "tickstone",
+        "title": "TickStone",
+        "type": "menu"
+    },
+    {
+        "children": [
+            {
                 "children": [
                     {
                         "children": [],

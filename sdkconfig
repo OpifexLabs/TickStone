@@ -496,6 +496,12 @@ CONFIG_PARTITION_TABLE_MD5=y
 # end of Partition Table
 
 #
+# TickStone
+#
+# CONFIG_TICKSTONE_STORAGE_SELF_TEST is not set
+# end of TickStone
+
+#
 # Compiler options
 #
 CONFIG_COMPILER_OPTIMIZATION_DEBUG=y

@@ -195,6 +195,17 @@ esp_err_t ssd1306_oled_init(const ssd1306_oled_config_t *config)
     return ssd1306_oled_clear();
 }
 
+esp_err_t ssd1306_oled_set_contrast(uint8_t contrast)
+{
+    ESP_RETURN_ON_ERROR(command(0x81), OLED_LOG_TAG, "contrast command failed");
+    return command(contrast);
+}
+
+esp_err_t ssd1306_oled_set_enabled(bool enabled)
+{
+    return command(enabled ? 0xAF : 0xAE);
+}
+
 esp_err_t ssd1306_oled_clear(void)
 {
     uint8_t empty[OLED_WIDTH] = {0};
@@ -297,5 +308,38 @@ esp_err_t ssd1306_oled_draw_text_2x(uint8_t x, uint8_t page, const char *text)
         x += sizeof(scaled[0]);
     }
 
+    return ESP_OK;
+}
+
+esp_err_t ssd1306_oled_draw_bitmap_8x8_2x(uint8_t x, uint8_t page, const uint8_t rows[8])
+{
+    if (rows == NULL || page + 1 >= OLED_PAGES || x + 16 > OLED_WIDTH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t scaled[2][16] = {0};
+    for (uint8_t source_y = 0; source_y < 8; ++source_y) {
+        for (uint8_t source_x = 0; source_x < 8; ++source_x) {
+            if ((rows[source_y] & BIT(7 - source_x)) == 0) {
+                continue;
+            }
+
+            const uint8_t target_x = source_x * 2;
+            const uint8_t target_y = source_y * 2;
+            const uint8_t target_page = target_y / 8;
+            const uint8_t target_bit = target_y % 8;
+            scaled[target_page][target_x] |= BIT(target_bit) | BIT(target_bit + 1);
+            scaled[target_page][target_x + 1] |= BIT(target_bit) | BIT(target_bit + 1);
+        }
+    }
+
+    ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "bitmap top cursor failed");
+    ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[0], sizeof(scaled[0])),
+                        OLED_LOG_TAG,
+                        "draw bitmap top failed");
+    ESP_RETURN_ON_ERROR(set_cursor(x, page + 1), OLED_LOG_TAG, "bitmap bottom cursor failed");
+    ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[1], sizeof(scaled[1])),
+                        OLED_LOG_TAG,
+                        "draw bitmap bottom failed");
     return ESP_OK;
 }

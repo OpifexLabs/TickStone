@@ -3,3 +3,4 @@ source "/Users/allangamal/esp/esp-idf/components/esp_app_format/Kconfig.projbuil
 source "/Users/allangamal/esp/esp-idf/components/esp_rom/Kconfig.projbuild"
 source "/Users/allangamal/esp/esp-idf/components/esptool_py/Kconfig.projbuild"
 source "/Users/allangamal/esp/esp-idf/components/partition_table/Kconfig.projbuild"
+source "/Users/allangamal/Documents/GitHub/TickStone/main/Kconfig.projbuild"

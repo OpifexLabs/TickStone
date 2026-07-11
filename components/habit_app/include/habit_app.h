@@ -39,6 +39,7 @@ typedef enum {
     HABIT_SCREEN_CONFIRM,
     HABIT_SCREEN_TIMER_SETUP,
     HABIT_SCREEN_SESSION,
+    HABIT_SCREEN_CANCEL_CONFIRM,
     HABIT_SCREEN_STATS,
 } habit_screen_id_t;
 
@@ -55,6 +56,30 @@ typedef enum {
     HABIT_HOME_HABITS,
     HABIT_HOME_LOGS,
 } habit_home_mode_t;
+
+typedef enum {
+    HABIT_UI_ICON_NONE = 0,
+    HABIT_UI_ICON_ACTION,
+    HABIT_UI_ICON_HABITS,
+    HABIT_UI_ICON_LOGS,
+    HABIT_UI_ICON_COUNT,
+    HABIT_UI_ICON_TIMER,
+    HABIT_UI_ICON_STOPWATCH,
+    HABIT_UI_ICON_CHECK,
+    HABIT_UI_ICON_EMPTY,
+    HABIT_UI_ICON_PLAY,
+    HABIT_UI_ICON_PAUSE,
+    HABIT_UI_ICON_CLOSE,
+    HABIT_UI_ICON_CHART,
+    HABIT_UI_ICON_HOME,
+    HABIT_UI_ICON_PLUS,
+    HABIT_UI_ICON_MINUS,
+    HABIT_UI_ICON_LEFT,
+    HABIT_UI_ICON_RIGHT,
+    HABIT_UI_ICON_EDIT,
+    HABIT_UI_ICON_UNDO,
+    HABIT_UI_ICON_BACK,
+} habit_ui_icon_t;
 
 typedef struct {
     uint8_t id;
@@ -77,9 +102,16 @@ typedef struct {
 
 typedef struct {
     habit_screen_id_t id;
-    char primary[8];
-    char secondary[8];
-    char tertiary[8];
+    habit_home_mode_t home_mode;
+    habit_ui_icon_t icon;
+    habit_ui_icon_t left_action;
+    habit_ui_icon_t ok_action;
+    habit_ui_icon_t right_action;
+    char header[16];
+    char primary[12];
+    char secondary[16];
+    char meta[12];
+    bool show_home_nav;
     bool dirty;
 } habit_screen_t;
 
@@ -116,6 +148,8 @@ typedef struct {
     uint32_t session_paused_total;
     uint32_t timer_seconds;
     uint32_t setup_minutes;
+    uint32_t completion_sequence;
+    bool timer_completed;
 
     bool logs_dirty;
     bool session_dirty;
@@ -142,6 +176,7 @@ void habit_app_load_logs(habit_app_t *app, const habit_log_t *logs, size_t log_c
 size_t habit_app_copy_logs(const habit_app_t *app, habit_log_t *out, size_t max_logs);
 bool habit_app_get_log(const habit_app_t *app, size_t index, habit_log_t *out);
 int habit_app_last_log_index(const habit_app_t *app);
+uint32_t habit_app_completion_sequence(const habit_app_t *app);
 bool habit_app_export_session(const habit_app_t *app, habit_session_snapshot_t *out);
 void habit_app_restore_session(habit_app_t *app,
                                const habit_session_snapshot_t *session,

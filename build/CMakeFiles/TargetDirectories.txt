@@ -841,6 +841,13 @@
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/CMakeFiles/install.dir
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/CMakeFiles/install/local.dir
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/buttons/CMakeFiles/install/strip.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/__idf_display_idle.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/edit_cache.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/rebuild_cache.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/list_install_components.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/install.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/install/local.dir
+/Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/display_idle/CMakeFiles/install/strip.dir
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/CMakeFiles/__idf_habit_app.dir
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/CMakeFiles/edit_cache.dir
 /Users/allangamal/Documents/GitHub/TickStone/build/esp-idf/habit_app/CMakeFiles/rebuild_cache.dir
