@@ -1,5 +1,6 @@
 #include <stddef.h>
 #include <string.h>
+#include <sys/time.h>
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -19,46 +20,49 @@
 #include "habit_app.h"
 #include "habit_storage.h"
 #include "ssd1306_oled.h"
-#include "tickstone_network.h"
-#include "sync_policy.h"
+#include "tickstone_ble.h"
+#include "tickstone_usb.h"
 
 static const char *TAG = APP_NAME;
 
 static habit_app_t s_app;
-static sync_policy_t s_sync_policy;
+static uint64_t s_ble_published_log_id;
 
-static void apply_web_configuration(void)
+static const habit_log_t *first_unsynced_log(void)
 {
-    if (s_app.session_active) return;
-    habit_config_t habits[HABIT_APP_MAX_HABITS];
-    size_t count = 0;
-    if (tickstone_network_take_habits(habits, &count) && habit_app_set_habits(&s_app, habits, count)) {
-        ESP_LOGI(TAG, "Applied %u habits from web UI", (unsigned)count);
+    for (size_t i = 0; i < s_app.log_count; ++i) {
+        if (!s_app.logs[i].synced) return &s_app.logs[i];
     }
+    return NULL;
 }
 
-static esp_err_t sync_one_pending_log(int64_t now_ms)
+static void set_utc_time(int64_t utc_seconds)
 {
-    if (!sync_policy_due(&s_sync_policy, now_ms)) return ESP_OK;
-    for (size_t i = 0; i < s_app.log_count; ++i) {
-        habit_log_t log;
-        if (!habit_app_get_log(&s_app, i, &log) || log.synced) continue;
-        if (tickstone_network_sync_log(&log)) {
-            habit_app_mark_log_synced(&s_app, log.id);
-            bool more_pending = false;
-            for (size_t j = i + 1; j < s_app.log_count; ++j) {
-                if (!s_app.logs[j].synced) { more_pending = true; break; }
-            }
-            sync_policy_succeeded(&s_sync_policy, now_ms, more_pending);
-            esp_err_t err = habit_storage_save_logs(&s_app);
-            if (err == ESP_OK) s_app.logs_dirty = false;
-            return err;
-        }
-        sync_policy_failed(&s_sync_policy, now_ms);
-        return ESP_OK;
+    const struct timeval time = {.tv_sec = (time_t)utc_seconds};
+    settimeofday(&time, NULL);
+}
+
+static void apply_transport_requests(void)
+{
+    habit_config_t habits[HABIT_APP_MAX_HABITS];
+    size_t count = 0;
+    if (!s_app.session_active && tickstone_usb_take_habits(habits, &count) &&
+        habit_app_set_habits(&s_app, habits, count)) {
+        ESP_LOGI(TAG, "Applied %u habits from USB", (unsigned)count);
     }
-    sync_policy_succeeded(&s_sync_policy, now_ms, false);
-    return ESP_OK;
+    int64_t utc_seconds = 0;
+    if (tickstone_usb_take_time(&utc_seconds) || tickstone_ble_take_time(&utc_seconds)) {
+        set_utc_time(utc_seconds);
+        ESP_LOGI(TAG, "Clock set by host");
+    }
+    uint64_t ack_id = 0;
+    if (tickstone_ble_take_ack(&ack_id) && ack_id == s_ble_published_log_id &&
+        habit_app_mark_log_synced(&s_app, ack_id)) {
+        ESP_LOGI(TAG, "BLE acknowledged log %llu", (unsigned long long)ack_id);
+    }
+    const habit_log_t *pending = first_unsynced_log();
+    tickstone_ble_publish_log(pending);
+    s_ble_published_log_id = pending ? pending->id : 0;
 }
 
 static const uint8_t s_ui_icons[HABIT_UI_ICON_BACK + 1][8] = {
@@ -153,14 +157,14 @@ static uint8_t center_x_2x(const char *text)
 {
     const size_t len = strlen(text);
     const size_t width = len * 12;
-    return width >= 128 ? 0 : (uint8_t)((128 - width) / 2);
+    return width >= 104 ? 0 : (uint8_t)((104 - width) / 2);
 }
 
 static uint8_t center_x_1x(const char *text)
 {
     const size_t len = strlen(text);
     const size_t width = len * 6;
-    return width >= 128 ? 0 : (uint8_t)((128 - width) / 2);
+    return width >= 104 ? 0 : (uint8_t)((104 - width) / 2);
 }
 
 static esp_err_t draw_icon(uint8_t x, uint8_t page, habit_ui_icon_t icon)
@@ -180,9 +184,6 @@ static habit_ui_icon_t header_icon(const habit_screen_t *screen)
     if (screen->home_mode == HABIT_HOME_HABITS) {
         return HABIT_UI_ICON_HABITS;
     }
-    if (screen->home_mode == HABIT_HOME_LOGS) {
-        return HABIT_UI_ICON_LOGS;
-    }
     return HABIT_UI_ICON_ACTION;
 }
 
@@ -192,7 +193,7 @@ static esp_err_t render_header(const habit_screen_t *screen)
     const size_t text_width = strlen(screen->header) * 6;
     const size_t icon_width = icon == HABIT_UI_ICON_NONE ? 0 : 12;
     const size_t total_width = icon_width + text_width;
-    uint8_t x = total_width >= 128 ? 0 : (uint8_t)((128 - total_width) / 2);
+    uint8_t x = total_width >= 104 ? 0 : (uint8_t)((104 - total_width) / 2);
 
     if (icon != HABIT_UI_ICON_NONE) {
         ESP_RETURN_ON_ERROR(ssd1306_oled_draw_bitmap_8x8(x, 1, s_ui_icons[icon]),
@@ -210,6 +211,7 @@ static esp_err_t render_header(const habit_screen_t *screen)
 
 static esp_err_t render_screen(const habit_screen_t *screen)
 {
+    ESP_RETURN_ON_ERROR(ssd1306_oled_restore_controller(), TAG, "OLED controller restore failed");
     ESP_RETURN_ON_ERROR(ssd1306_oled_clear(), TAG, "clear failed");
     ESP_RETURN_ON_ERROR(render_header(screen), TAG, "header draw failed");
     ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text_2x(center_x_2x(screen->primary), 5, screen->primary),
@@ -222,9 +224,9 @@ static esp_err_t render_screen(const habit_screen_t *screen)
                             "secondary draw failed");
     }
 
-    ESP_RETURN_ON_ERROR(draw_icon(12, 12, screen->left_action), TAG, "left action failed");
-    ESP_RETURN_ON_ERROR(draw_icon(56, 12, screen->ok_action), TAG, "ok action failed");
-    ESP_RETURN_ON_ERROR(draw_icon(100, 12, screen->right_action), TAG, "right action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(110, 1, screen->left_action), TAG, "top action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(110, 7, screen->ok_action), TAG, "middle action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(110, 13, screen->right_action), TAG, "bottom action failed");
     return ssd1306_oled_present();
 }
 
@@ -235,7 +237,8 @@ static esp_err_t apply_display_idle_state(display_idle_state_t state)
         ESP_RETURN_ON_ERROR(ssd1306_oled_set_contrast(OLED_FULL_CONTRAST),
                             TAG,
                             "restore OLED contrast failed");
-        return ssd1306_oled_set_enabled(true);
+        ESP_RETURN_ON_ERROR(ssd1306_oled_restore_controller(), TAG, "restore OLED controller failed");
+        return ssd1306_oled_present();
     case DISPLAY_IDLE_DIMMED:
         return ssd1306_oled_set_contrast(OLED_DIM_CONTRAST);
     case DISPLAY_IDLE_OFF:
@@ -252,7 +255,7 @@ static esp_err_t persist_app_state(void)
         s_app.habits_dirty = false;
         habit_config_t habits[HABIT_APP_MAX_HABITS];
         size_t count = habit_app_copy_habits(&s_app, habits, HABIT_APP_MAX_HABITS);
-        tickstone_network_update_habits(habits, count);
+        tickstone_usb_update_habits(habits, count);
     }
     if (s_app.daily_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_daily(&s_app), TAG, "save daily summaries failed");
@@ -261,7 +264,6 @@ static esp_err_t persist_app_state(void)
     if (s_app.logs_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_logs(&s_app), TAG, "save logs failed");
         s_app.logs_dirty = false;
-        sync_policy_request_now(&s_sync_policy, now_milliseconds());
     }
     if (s_app.session_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_session(&s_app), TAG, "save session failed");
@@ -307,7 +309,6 @@ static esp_err_t finish_alert_update(finish_alert_t *alert,
 void app_main(void)
 {
     ESP_LOGI(TAG, "Habit tracker starting");
-    sync_policy_init(&s_sync_policy);
     const esp_pm_config_t power = {
         .max_freq_mhz = 160,
         .min_freq_mhz = 40,
@@ -327,9 +328,10 @@ void app_main(void)
     bool initial_clock_synced = clock_service_now_utc(&initial_utc);
     habit_app_update_clock(&s_app, initial_utc, initial_clock_synced);
     ESP_ERROR_CHECK(habit_storage_load(&s_app, now_seconds()));
-    habit_config_t network_habits[HABIT_APP_MAX_HABITS];
-    size_t network_habit_count = habit_app_copy_habits(&s_app, network_habits, HABIT_APP_MAX_HABITS);
-    ESP_ERROR_CHECK(tickstone_network_start(network_habits, network_habit_count));
+    habit_config_t transport_habits[HABIT_APP_MAX_HABITS];
+    size_t transport_habit_count = habit_app_copy_habits(&s_app, transport_habits, HABIT_APP_MAX_HABITS);
+    ESP_ERROR_CHECK(tickstone_usb_start(transport_habits, transport_habit_count));
+    ESP_ERROR_CHECK(tickstone_ble_init());
 
     habit_screen_t last_screen = {0};
     bool has_last_screen = false;
@@ -342,7 +344,7 @@ void app_main(void)
     uint32_t seen_completion_sequence = habit_app_completion_sequence(&s_app);
 
     while (true) {
-        apply_web_configuration();
+        apply_transport_requests();
         const int64_t seconds = now_seconds();
         const int64_t milliseconds = now_milliseconds();
         int64_t utc_seconds = 0;
@@ -399,8 +401,12 @@ void app_main(void)
             ESP_ERROR_CHECK(finish_alert_start(&finish_alert, &display_idle, milliseconds));
             seen_completion_sequence = completion_sequence;
         }
+        const bool request_ble_sync = s_app.logs_dirty && first_unsynced_log() != NULL;
         ESP_ERROR_CHECK(persist_app_state());
-        ESP_ERROR_CHECK(sync_one_pending_log(milliseconds));
+        if (request_ble_sync || tickstone_usb_take_sync_request()) {
+            ESP_ERROR_CHECK(tickstone_ble_request_sync(milliseconds));
+        }
+        ESP_ERROR_CHECK(tickstone_ble_update(milliseconds, first_unsynced_log() != NULL));
 
         const habit_screen_t *screen = habit_app_screen(&s_app, seconds);
         if (display_idle.state != DISPLAY_IDLE_OFF &&

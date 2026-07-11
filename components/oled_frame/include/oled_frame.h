@@ -15,6 +15,7 @@ typedef struct {
 
 void oled_frame_init(oled_frame_t *frame);
 void oled_frame_clear(oled_frame_t *frame);
+void oled_frame_invalidate(oled_frame_t *frame);
 bool oled_frame_page_changed(const oled_frame_t *frame, uint8_t page);
 void oled_frame_page_presented(oled_frame_t *frame, uint8_t page);
 uint8_t *oled_frame_page(oled_frame_t *frame, uint8_t page);

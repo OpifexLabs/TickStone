@@ -21,6 +21,8 @@ int main(void)
     present(&frame); assert(changed(&frame) == 0);
     oled_frame_page(&frame, 7)[42] = 1; assert(changed(&frame) == 1);
     present(&frame); assert(changed(&frame) == 0);
+    oled_frame_invalidate(&frame); assert(changed(&frame) == 16);
+    present(&frame); assert(changed(&frame) == 0);
     oled_frame_clear(&frame); assert(changed(&frame) == 1);
     puts("oled_frame_test: OK");
     return 0;

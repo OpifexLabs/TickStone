@@ -94,12 +94,14 @@ static esp_err_t load_cfg3(nvs_handle_t h, habit_app_t *app)
 static esp_err_t load_old_cfg(nvs_handle_t h, habit_app_t *app)
 {
     habit_legacy_config_t blob = {0};
+    habit_config_t converted[HABIT_APP_MAX_HABITS] = {0};
+    size_t count = 0;
     size_t size = sizeof(blob);
     esp_err_t err = nvs_get_blob(h, OLD_CFG, &blob, &size);
     if (err != ESP_OK) return err;
-    if (size != sizeof(blob) || blob.version != 1 || blob.count == 0 ||
-        blob.count > HABIT_APP_MAX_HABITS ||
-        !habit_app_load_habits(app, blob.habits, blob.count)) return ESP_ERR_INVALID_VERSION;
+    if (size != sizeof(blob) ||
+        !habit_legacy_convert_config(&blob, converted, HABIT_APP_MAX_HABITS, &count) ||
+        !habit_app_load_habits(app, converted, count)) return ESP_ERR_INVALID_VERSION;
     return ESP_OK;
 }
 

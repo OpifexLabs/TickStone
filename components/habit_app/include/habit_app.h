@@ -10,6 +10,7 @@ extern "C" {
 
 #define HABIT_APP_MAX_HABITS 10
 #define HABIT_APP_LABEL_LEN 3
+#define HABIT_APP_NAME_LEN 15
 #define HABIT_APP_MAX_LOGS 512
 #define HABIT_APP_MAX_DAILY_SUMMARIES 700
 
@@ -37,6 +38,7 @@ typedef enum {
 typedef enum {
     HABIT_SCREEN_SELECT = 0,
     HABIT_SCREEN_CONFIRM,
+    HABIT_SCREEN_TIME_MODE,
     HABIT_SCREEN_TIMER_SETUP,
     HABIT_SCREEN_SESSION,
     HABIT_SCREEN_CANCEL_CONFIRM,
@@ -45,7 +47,8 @@ typedef enum {
 } habit_screen_id_t;
 
 typedef enum {
-    HABIT_STAT_WEEK_TOTAL = 0,
+    HABIT_STAT_LATEST_LOG = 0,
+    HABIT_STAT_WEEK_TOTAL,
     HABIT_STAT_WEEK_DELTA,
     HABIT_STAT_MONTH_TOTAL,
     HABIT_STAT_WEEK_AVG,
@@ -55,7 +58,6 @@ typedef enum {
 typedef enum {
     HABIT_HOME_ACTION = 0,
     HABIT_HOME_HABITS,
-    HABIT_HOME_LOGS,
 } habit_home_mode_t;
 
 typedef enum {
@@ -85,6 +87,7 @@ typedef enum {
 typedef struct {
     uint8_t id;
     char label[HABIT_APP_LABEL_LEN + 1];
+    char name[HABIT_APP_NAME_LEN + 1];
     habit_type_t type;
     habit_time_mode_t time_mode;
     uint16_t default_minutes;
@@ -152,7 +155,6 @@ typedef struct {
 
     size_t selected;
     habit_home_mode_t home_mode;
-    size_t log_view_index;
     habit_screen_id_t screen;
     habit_screen_id_t error_return_screen;
     habit_stat_view_t stat_view;
@@ -165,6 +167,7 @@ typedef struct {
     uint32_t session_paused_total;
     uint32_t timer_seconds;
     uint32_t setup_minutes;
+    habit_time_mode_t session_time_mode;
     uint32_t completion_sequence;
     bool timer_completed;
     int64_t utc_now;

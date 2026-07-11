@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="sv">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>TickStone</title>
+  <link rel="stylesheet" href="/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div>
+      <h1>TickStone</h1>
+      <p id="connection" class="connection">Ansluter via USB...</p>
+    </div>
+    <div class="header-actions">
+      <button id="sync" class="button secondary" type="button">Öppna synk</button>
+      <button id="save" class="button primary" type="button" disabled>Spara</button>
+    </div>
+  </header>
+
+  <main>
+    <div class="section-heading">
+      <div>
+        <h2>Vanor</h2>
+        <p><span id="count">0</span> av 10 platser används</p>
+      </div>
+      <button id="add" class="button secondary" type="button" disabled><span aria-hidden="true">+</span> Ny vana</button>
+    </div>
+
+    <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+    <div id="habits" class="habit-list" aria-busy="true"></div>
+    <div id="empty" class="empty" hidden>
+      <strong>Inga vanor ännu</strong>
+      <p>Lägg till din första vana för att börja.</p>
+    </div>
+  </main>
+
+  <template id="habit-template">
+    <section class="habit-row">
+      <div class="slot" aria-label="Plats"></div>
+      <label class="field code-field">
+        <span>Kod</span>
+        <input class="code" maxlength="3" inputmode="text" autocomplete="off" required pattern="[A-Z0-9]{1,3}">
+      </label>
+      <label class="field name-field">
+        <span>Namn</span>
+        <input class="name" maxlength="15" autocomplete="off" required pattern="[A-Z0-9 ]{1,15}">
+      </label>
+      <fieldset class="mode-field">
+        <legend>Typ</legend>
+        <div class="segments">
+          <label><input type="radio" value="count"><span>Tillfälle</span></label>
+          <label><input type="radio" value="time"><span>Tid</span></label>
+        </div>
+      </fieldset>
+      <label class="field minutes-field">
+        <span>Timer (min)</span>
+        <input class="minutes" type="number" min="1" max="99" step="1" required>
+      </label>
+      <button class="remove" type="button" aria-label="Ta bort vana" title="Ta bort">Ta bort</button>
+    </section>
+  </template>
+
+  <script src="/app.js"></script>
+</body>
+</html>

@@ -1,6 +1,6 @@
 # TickStone
 
-TickStone ar en batterimedveten habit tracker for ESP32-C3 med 128x128 SSD1306 OLED och tre knappar. Upp till tio habits kan vara antingen tillfallen eller tid, med timer eller tidtagare. Loggar sparas lokalt och synkas nar WiFi finns.
+TickStone ar en batterimedveten habit tracker for ESP32-C3 med 128x128 SSD1306 OLED och tre knappar. Upp till tio habits kan vara antingen tillfallen eller tid, med timer eller tidtagare. Installningar gors via USB och loggar synkas till macOS eller Raspberry Pi via Bluetooth LE.
 
 ## Koppling
 
@@ -18,29 +18,56 @@ OLED drivs med 3V3 och GND. Alla pinnummer finns i `main/app_config.h`.
 
 ## Anvandning
 
-- Hem har tre lagen: habits, action och loggar.
+- Hem har tva lagen: action och habits.
 - Kort vanster/hoger bladdrar inom aktuell vy. Mitten valjer eller startar.
-- Lang vanster/hoger byter hemlage. Lang mitten visar statistik eller sparar en session.
+- En habit av typen Tid visar alltid val mellan timer och tidtagare vid start. Standardminuter anvands endast om timer valjs.
+- Lang vanster/hoger byter hemlage. I habits oppnar mitten senaste loggen och kalenderstatistik for vald habit.
 - Displayen dimmas efter 5 sekunder. Utan aktiv timer slacks den efter ytterligare 10 sekunder; en aktiv timer far ligga dimmad i upp till en minut.
 - Forsta knapptrycket fran dimmat/slackt lage vacker bara displayen.
 
-## WiFi och webbvy
+## USB-installningar
 
-Utan sparat natverk startar enheten installationsnatet `TickStone-XXXX` med losenordet `tickstone`. Anslut och oppna `http://192.168.4.1`. Dar kan WiFi, synk-URL och upp till tio habits konfigureras. Pa hemnatet ar samma sida tillganglig pa enhetens DHCP-adress, som skrivs i serielloggen.
+Anslut TickStone med USB och starta det lokala installningsgranssnittet:
 
-Klockan synkas med SNTP och anvander tidszonen Europe/Stockholm. En TickStone-dag byter vid 05:00 lokal tid. Veckor ar mandag-sondag och manader foljer kalendern, inklusive sommartid.
+```sh
+tools/tickstone_settings.py
+```
 
-## Synk-API
+Webblasaren oppnar `http://127.0.0.1:8787`. Dar visas alla habits och du kan lagga till, andra eller ta bort dem innan hela konfigurationen sparas och verifieras via USB. Servern lyssnar endast pa den lokala datorn. Habit-platsernas ID ar stabila sa att befintlig logghistorik inte byter betydelse.
 
-Varje osynkad logg skickas med `POST` som JSON till konfigurerad URL. Headern `Idempotency-Key` innehaller loggens stabila ID. Alla 2xx-svar markerar posten synkad. Fel ger exponentiell backoff fran 5 sekunder upp till 15 minuter; lokal loggning fortsatter offline. HTTPS verifieras mot ESP-IDF:s CA-bundle.
+Terminalverktyget finns kvar som reserv pa macOS och Linux:
 
-Servern ska behandla samma idempotensnyckel som samma operation. JSON innehaller `id`, `habit_id`, `type`, `started_at`, `ended_at`, `duration_seconds`, `count` och `deleted`.
+```sh
+tools/tickstone_usb.py show
+tools/tickstone_usb.py configure
+tools/tickstone_usb.py sync
+```
+
+Verktyget hittar normalt porten automatiskt, laser/skriver upp till tio habits och satter enhetens klocka. `sync` oppnar BLE-fonstret manuellt om en tidigare automatisk synk missades. Varje habit har en kod pa hogst 3 tecken och ett namn pa hogst 15 tecken. Protokollet ar radbaserat och versionsmarkt med `TS1`; andra serielloggar ignoreras.
+
+## Bluetooth-synk
+
+Installera vardberoendet en gang pa Mac eller Raspberry Pi 5:
+
+```sh
+python3 -m pip install -r tools/requirements-ble.txt
+```
+
+Lat verktyget vanta pa nya loggar pa den dator som ska ta emot dem:
+
+```sh
+tools/tickstone_ble_sync.py --watch
+```
+
+Utan `--watch` gor kommandot ett enda synkforsok. Nar en logg skapas oppnar TickStone ett BLE-fonster i hogst 60 sekunder. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
+
+Klockan anvander tidszonen Europe/Stockholm. En TickStone-dag byter vid 05:00 lokal tid. Veckor ar mandag-sondag och manader foljer kalendern, inklusive sommartid.
 
 ## Data och energi
 
 - Versionerat little-endian-format med CRC, explicit migrering fran tidigare NVS-format och ingen automatisk radering vid NVS-fel.
 - Ringlager med 512 poster och kompakta dagssammanfattningar for 70 kalenderdagar. Osynkade poster skrivs aldrig over; UI visar `LOG FULL / SYNC NEEDED` om kon gar full.
-- CPU skalar mellan 40 och 160 MHz, FreeRTOS anvander tickless idle och WiFi modem-sleep. Automatisk light sleep ar avstangd pa USB-prototypen eftersom den kopplar ned C3:ans USB-Serial/JTAG; djupsomn aktiveras forst med batteri och definierade wake-pinnar.
+- CPU skalar mellan 40 och 160 MHz och FreeRTOS anvander tickless idle. WiFi startas inte. BLE-radion ar helt av i vila och aktiveras tillfalligt av en ny osynkad logg. Automatisk light sleep ar avstangd pa USB-prototypen; djupsomn aktiveras forst med definierade wake-pinnar.
 - NVS har en egen 128 KB-partition och appen anvander resterande flash.
 
 ## Bygg och flash
@@ -55,7 +82,7 @@ Projektet ar konfigurerat for `esp32c3`. Att byta target skriver om `sdkconfig` 
 
 ## Tester
 
-Vardtesterna tacker habit-floden, kalendergranser och DST, codec/CRC, legacy-migrering, rollover/power-loss, full osynkad loggko, webbvalidering, synkbackoff, framebuffer dirty pages samt displayens idle-regler. OLED-flodena renderas fran samma font-, ikon- och tillstandsdata som firmware.
+Vardtesterna tacker habit-floden, kalendergranser och DST, codec/CRC, legacy-migrering, rollover/power-loss, full osynkad loggko, USB-validering, BLE-paket, framebuffer dirty pages samt displayens idle-regler. OLED-flodena renderas fran samma font-, ikon- och tillstandsdata som firmware.
 
 ```sh
 tools/run_tests.sh

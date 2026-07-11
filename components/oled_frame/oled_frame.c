@@ -10,6 +10,10 @@ static uint32_t hash_page(const uint8_t *data)
 
 void oled_frame_init(oled_frame_t *frame) { if (frame) memset(frame, 0, sizeof(*frame)); }
 void oled_frame_clear(oled_frame_t *frame) { if (frame) memset(frame->pixels, 0, sizeof(frame->pixels)); }
+void oled_frame_invalidate(oled_frame_t *frame)
+{
+    if (frame) memset(frame->presented, 0, sizeof(frame->presented));
+}
 
 const uint8_t *oled_frame_page_const(const oled_frame_t *frame, uint8_t page)
 {

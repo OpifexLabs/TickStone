@@ -2,12 +2,14 @@
 
 #include <string.h>
 
-#define HABITS_MAGIC 0x33424854U
+#define HABITS_MAGIC 0x34424854U
+#define HABITS_MAGIC_V3 0x33424854U
 #define LOG_MAGIC 0x334C4854U
 #define SESSION_MAGIC 0x33534854U
 #define DAILY_MAGIC 0x33444854U
 #define HABITS_HEADER_SIZE 8
-#define HABIT_RECORD_SIZE 10
+#define HABIT_RECORD_SIZE 26
+#define HABIT_RECORD_SIZE_V3 10
 
 static void put_u16(uint8_t *out, uint16_t value)
 {
@@ -69,6 +71,15 @@ static bool valid_crc(const uint8_t *data, size_t size)
     return size >= 4 && get_u32(&data[size - 4]) == crc32(data, size - 4);
 }
 
+static void migrate_v3_name(habit_config_t *habit)
+{
+    const char *name = habit->label;
+    if (strcmp(habit->label, "STR") == 0) name = "STRACKA";
+    else if (strcmp(habit->label, "MED") == 0) name = "MEDITATION";
+    else if (strcmp(habit->label, "STA") == 0) name = "STADA";
+    memcpy(habit->name, name, strlen(name) + 1);
+}
+
 bool habit_codec_encode_habits(const habit_config_t *habits,
                                size_t count,
                                uint8_t *out,
@@ -88,9 +99,10 @@ bool habit_codec_encode_habits(const habit_config_t *habits,
         uint8_t *record = &out[HABITS_HEADER_SIZE + i * HABIT_RECORD_SIZE];
         record[0] = habits[i].id;
         memcpy(&record[1], habits[i].label, HABIT_APP_LABEL_LEN + 1);
-        record[5] = (uint8_t)habits[i].type;
-        record[6] = (uint8_t)habits[i].time_mode;
-        put_u16(&record[7], habits[i].default_minutes);
+        memcpy(&record[5], habits[i].name, HABIT_APP_NAME_LEN + 1);
+        record[21] = (uint8_t)habits[i].type;
+        record[22] = (uint8_t)habits[i].time_mode;
+        put_u16(&record[23], habits[i].default_minutes);
     }
     put_u32(&out[size - 4], crc32(out, size - 4));
     *written = size;
@@ -104,23 +116,33 @@ bool habit_codec_decode_habits(const uint8_t *data,
                                size_t *count)
 {
     if (data == NULL || habits == NULL || count == NULL || data_size < HABITS_HEADER_SIZE + 4 ||
-        get_u32(data) != HABITS_MAGIC || !valid_crc(data, data_size)) {
+        (get_u32(data) != HABITS_MAGIC && get_u32(data) != HABITS_MAGIC_V3) || !valid_crc(data, data_size)) {
         return false;
     }
     const size_t decoded_count = data[4];
-    const size_t expected = HABITS_HEADER_SIZE + decoded_count * HABIT_RECORD_SIZE + 4;
+    const bool old_format = get_u32(data) == HABITS_MAGIC_V3;
+    const size_t record_size = old_format ? HABIT_RECORD_SIZE_V3 : HABIT_RECORD_SIZE;
+    const size_t expected = HABITS_HEADER_SIZE + decoded_count * record_size + 4;
     if (decoded_count == 0 || decoded_count > max_count || data_size != expected) {
         return false;
     }
 
     memset(habits, 0, sizeof(*habits) * decoded_count);
     for (size_t i = 0; i < decoded_count; ++i) {
-        const uint8_t *record = &data[HABITS_HEADER_SIZE + i * HABIT_RECORD_SIZE];
+        const uint8_t *record = &data[HABITS_HEADER_SIZE + i * record_size];
         habits[i].id = record[0];
         memcpy(habits[i].label, &record[1], HABIT_APP_LABEL_LEN + 1);
-        habits[i].type = (habit_type_t)record[5];
-        habits[i].time_mode = (habit_time_mode_t)record[6];
-        habits[i].default_minutes = get_u16(&record[7]);
+        if (old_format) {
+            migrate_v3_name(&habits[i]);
+            habits[i].type = (habit_type_t)record[5];
+            habits[i].time_mode = (habit_time_mode_t)record[6];
+            habits[i].default_minutes = get_u16(&record[7]);
+        } else {
+            memcpy(habits[i].name, &record[5], HABIT_APP_NAME_LEN + 1);
+            habits[i].type = (habit_type_t)record[21];
+            habits[i].time_mode = (habit_time_mode_t)record[22];
+            habits[i].default_minutes = get_u16(&record[23]);
+        }
     }
     *count = decoded_count;
     return true;

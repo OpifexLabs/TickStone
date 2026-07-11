@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[1]
 OUT_DIR = ROOT / "build" / "oled_flow_previews"
 OLED_W = 128
 OLED_H = 128
+CONTENT_W = 104
 SCALE = 2
 
 
@@ -55,14 +56,14 @@ int main(void)
     show(&app, "01_action_count", 100);
     long_press(&app, HABIT_BUTTON_LEFT, 101);
     show(&app, "02_home_habits", 101);
-    press(&app, HABIT_BUTTON_OK, 102);
-    show(&app, "03_habits_cycle_type", 102);
-    long_press(&app, HABIT_BUTTON_RIGHT, 103);
-    show(&app, "04_back_action", 103);
-    long_press(&app, HABIT_BUTTON_RIGHT, 104);
-    show(&app, "05_home_logs_empty", 104);
+    press(&app, HABIT_BUTTON_RIGHT, 102);
+    show(&app, "03_habits_next", 102);
+    press(&app, HABIT_BUTTON_OK, 103);
+    show(&app, "04_latest_log_empty", 103);
+    press(&app, HABIT_BUTTON_RIGHT, 104);
+    show(&app, "05_week_without_clock", 104);
     press(&app, HABIT_BUTTON_OK, 105);
-    show(&app, "06_empty_logs_exit", 105);
+    show(&app, "06_detail_exit", 105);
 
     habit_app_init(&app);
     press(&app, HABIT_BUTTON_OK, 101);
@@ -71,66 +72,76 @@ int main(void)
     show(&app, "08_count_undo", 102);
 
     press(&app, HABIT_BUTTON_RIGHT, 110);
-    show(&app, "09_action_timer", 110);
+    show(&app, "09_action_time", 110);
     press(&app, HABIT_BUTTON_OK, 111);
-    show(&app, "10_timer_setup", 111);
+    show(&app, "10_choose_timer", 111);
     press(&app, HABIT_BUTTON_RIGHT, 112);
-    show(&app, "11_timer_plus_minute", 112);
-    press(&app, HABIT_BUTTON_OK, 113);
-    show(&app, "12_timer_running_start", 113);
-    show(&app, "13_timer_running_seconds", 118);
-    press(&app, HABIT_BUTTON_OK, 119);
-    show(&app, "14_timer_paused", 119);
-    press(&app, HABIT_BUTTON_OK, 124);
-    show(&app, "15_timer_resumed", 124);
-    press(&app, HABIT_BUTTON_LEFT, 125);
-    show(&app, "16_cancel_confirmation", 125);
-    press(&app, HABIT_BUTTON_OK, 126);
-    show(&app, "17_cancel_back", 126);
-    press(&app, HABIT_BUTTON_RIGHT, 130);
-    show(&app, "18_timer_saved", 130);
-    show(&app, "19_back_to_action", 135);
+    show(&app, "11_choose_stopwatch", 112);
+    press(&app, HABIT_BUTTON_LEFT, 113);
+    show(&app, "12_choose_timer_again", 113);
+    press(&app, HABIT_BUTTON_OK, 114);
+    show(&app, "13_timer_setup", 114);
+    press(&app, HABIT_BUTTON_RIGHT, 115);
+    show(&app, "14_timer_plus_minute", 115);
+    press(&app, HABIT_BUTTON_OK, 116);
+    show(&app, "15_timer_running_start", 116);
+    show(&app, "16_timer_running_seconds", 121);
+    press(&app, HABIT_BUTTON_OK, 122);
+    show(&app, "17_timer_paused", 122);
+    press(&app, HABIT_BUTTON_OK, 127);
+    show(&app, "18_timer_resumed", 127);
+    press(&app, HABIT_BUTTON_LEFT, 128);
+    show(&app, "19_cancel_confirmation", 128);
+    press(&app, HABIT_BUTTON_OK, 129);
+    show(&app, "20_cancel_back", 129);
+    press(&app, HABIT_BUTTON_RIGHT, 133);
+    show(&app, "21_timer_saved", 133);
+    show(&app, "22_back_to_action", 138);
 
     press(&app, HABIT_BUTTON_RIGHT, 140);
-    show(&app, "20_action_stopwatch", 140);
+    show(&app, "23_action_time", 140);
     press(&app, HABIT_BUTTON_OK, 141);
-    show(&app, "21_stopwatch_start", 141);
-    show(&app, "22_stopwatch_seconds", 146);
-    press(&app, HABIT_BUTTON_OK, 147);
-    show(&app, "23_stopwatch_paused", 147);
-    press(&app, HABIT_BUTTON_RIGHT, 150);
-    show(&app, "24_stopwatch_saved", 150);
-    show(&app, "25_select_after_save", 155);
+    show(&app, "24_choose_timer_default", 141);
+    press(&app, HABIT_BUTTON_RIGHT, 142);
+    show(&app, "25_choose_stopwatch", 142);
+    press(&app, HABIT_BUTTON_OK, 143);
+    show(&app, "26_stopwatch_start", 143);
+    show(&app, "27_stopwatch_seconds", 148);
+    press(&app, HABIT_BUTTON_OK, 149);
+    show(&app, "28_stopwatch_paused", 149);
+    press(&app, HABIT_BUTTON_RIGHT, 152);
+    show(&app, "29_stopwatch_saved", 152);
+    show(&app, "30_select_after_save", 157);
 
-    long_press(&app, HABIT_BUTTON_RIGHT, 154);
-    show(&app, "26_logs_latest", 154);
-    press(&app, HABIT_BUTTON_RIGHT, 155);
-    show(&app, "27_logs_previous", 155);
-    press(&app, HABIT_BUTTON_OK, 156);
-    show(&app, "28_log_stats", 156);
-    press(&app, HABIT_BUTTON_OK, 157);
-    show(&app, "29_stats_exit", 157);
-
-    long_press(&app, HABIT_BUTTON_OK, 160);
-    show(&app, "30_stats_week", 160);
+    long_press(&app, HABIT_BUTTON_RIGHT, 158);
+    show(&app, "31_habits_with_logs", 158);
+    press(&app, HABIT_BUTTON_OK, 159);
+    show(&app, "32_latest_habit_log", 159);
+    press(&app, HABIT_BUTTON_RIGHT, 160);
+    show(&app, "33_stats_week", 160);
     press(&app, HABIT_BUTTON_RIGHT, 161);
-    show(&app, "31_stats_delta", 161);
+    show(&app, "34_stats_delta", 161);
     press(&app, HABIT_BUTTON_RIGHT, 162);
-    show(&app, "32_stats_month", 162);
+    show(&app, "35_stats_month", 162);
     press(&app, HABIT_BUTTON_RIGHT, 163);
-    show(&app, "33_stats_average", 163);
-    press(&app, HABIT_BUTTON_OK, 164);
-    show(&app, "34_stats_exit", 164);
+    show(&app, "36_stats_average", 163);
+    press(&app, HABIT_BUTTON_RIGHT, 164);
+    show(&app, "37_latest_wrap", 164);
+    press(&app, HABIT_BUTTON_OK, 165);
+    show(&app, "38_detail_exit", 165);
+    long_press(&app, HABIT_BUTTON_RIGHT, 166);
+    show(&app, "39_back_action", 166);
 
     habit_app_init(&app);
     press(&app, HABIT_BUTTON_RIGHT, 170);
     press(&app, HABIT_BUTTON_OK, 171);
     press(&app, HABIT_BUTTON_OK, 172);
-    show(&app, "35_timer_cancel_running", 176);
+    press(&app, HABIT_BUTTON_OK, 173);
+    show(&app, "40_timer_cancel_running", 176);
     press(&app, HABIT_BUTTON_LEFT, 177);
-    show(&app, "36_timer_cancel_prompt", 177);
+    show(&app, "41_timer_cancel_prompt", 177);
     press(&app, HABIT_BUTTON_RIGHT, 178);
-    show(&app, "37_timer_cancelled", 178);
+    show(&app, "42_timer_cancelled", 178);
 
     return 0;
 }
@@ -225,12 +236,12 @@ def draw_icon_1x(pixels, icons, x, page, icon_id):
 
 def center_x_2x(text):
     width = len(text) * 12
-    return 0 if width >= OLED_W else (OLED_W - width) // 2
+    return 0 if width >= CONTENT_W else (CONTENT_W - width) // 2
 
 
 def center_x_1x(text):
     width = len(text) * 6
-    return 0 if width >= OLED_W else (OLED_W - width) // 2
+    return 0 if width >= CONTENT_W else (CONTENT_W - width) // 2
 
 
 def render_screen(font, icons, icon_ids, view):
@@ -240,11 +251,10 @@ def render_screen(font, icons, icon_ids, view):
     if view["show_home_nav"]:
         header_icon = (
             icon_ids["HABIT_UI_ICON_HABITS"] if view["home_mode"] == 1
-            else icon_ids["HABIT_UI_ICON_LOGS"] if view["home_mode"] == 2
             else icon_ids["HABIT_UI_ICON_ACTION"]
         )
     header_width = 12 + len(view["header"]) * 6 if header_icon else len(view["header"]) * 6
-    header_x = 0 if header_width >= OLED_W else (OLED_W - header_width) // 2
+    header_x = 0 if header_width >= CONTENT_W else (CONTENT_W - header_width) // 2
     if header_icon:
         draw_icon_1x(pixels, icons, header_x, 1, header_icon)
         header_x += 12
@@ -252,9 +262,9 @@ def render_screen(font, icons, icon_ids, view):
 
     draw_text_2x(pixels, font, center_x_2x(view["primary"]), 5, view["primary"])
     draw_text_1x(pixels, font, center_x_1x(view["secondary"]), 8, view["secondary"])
-    draw_icon_2x(pixels, icons, 12, 12, view["left_action"])
-    draw_icon_2x(pixels, icons, 56, 12, view["ok_action"])
-    draw_icon_2x(pixels, icons, 100, 12, view["right_action"])
+    draw_icon_2x(pixels, icons, 110, 1, view["left_action"])
+    draw_icon_2x(pixels, icons, 110, 7, view["ok_action"])
+    draw_icon_2x(pixels, icons, 110, 13, view["right_action"])
     return image
 
 

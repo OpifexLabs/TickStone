@@ -210,6 +210,26 @@ esp_err_t ssd1306_oled_set_enabled(bool enabled)
     return command(enabled ? 0xAF : 0xAE);
 }
 
+esp_err_t ssd1306_oled_restore_controller(void)
+{
+    static const uint8_t restore_commands[] = {
+        0xA8, 0x7F, // 128 rows
+        0xD3, 0x00, // No display offset
+        0x40,       // Start at row zero
+        0xA1,       // Segment orientation
+        0xC8,       // COM scan orientation
+        0xDA, 0x12, // COM layout
+        0xA4,       // Display framebuffer
+        0xA6,       // Normal, not inverted
+        0xAF,       // Display on
+    };
+    for (size_t i = 0; i < sizeof(restore_commands); ++i) {
+        ESP_RETURN_ON_ERROR(command(restore_commands[i]), OLED_LOG_TAG, "restore command failed");
+    }
+    oled_frame_invalidate(&s_frame);
+    return ESP_OK;
+}
+
 esp_err_t ssd1306_oled_clear(void)
 {
     oled_frame_clear(&s_frame);

@@ -4,11 +4,43 @@
 #include <stdio.h>
 #include <string.h>
 
+static uint32_t test_crc32(const uint8_t *data, size_t size)
+{
+    uint32_t crc = 0xffffffffu;
+    for (size_t i = 0; i < size; ++i) {
+        crc ^= data[i];
+        for (unsigned bit = 0; bit < 8; ++bit) {
+            crc = (crc >> 1) ^ (0xedb88320u & (uint32_t)-(int32_t)(crc & 1u));
+        }
+    }
+    return ~crc;
+}
+
+static void test_v3_habit_migration(void)
+{
+    uint8_t encoded[22] = {
+        0x54, 0x48, 0x42, 0x33, // THB3
+        1, 0, 0, 0,
+        2, 'S', 'T', 'R', 0,
+        HABIT_TYPE_COUNT, HABIT_TIME_STOPWATCH, 1, 0, 0,
+    };
+    const uint32_t crc = test_crc32(encoded, sizeof(encoded) - 4);
+    encoded[18] = (uint8_t)crc;
+    encoded[19] = (uint8_t)(crc >> 8);
+    encoded[20] = (uint8_t)(crc >> 16);
+    encoded[21] = (uint8_t)(crc >> 24);
+
+    habit_config_t output = {0};
+    size_t count = 0;
+    assert(habit_codec_decode_habits(encoded, sizeof(encoded), &output, 1, &count));
+    assert(count == 1 && !strcmp(output.label, "STR") && !strcmp(output.name, "STRACKA"));
+}
+
 static void test_habits_roundtrip_and_corruption(void)
 {
     const habit_config_t input[] = {
-        {.id = 1, .label = "MED", .type = HABIT_TYPE_TIME, .time_mode = HABIT_TIME_TIMER, .default_minutes = 12},
-        {.id = 2, .label = "STR", .type = HABIT_TYPE_COUNT, .time_mode = HABIT_TIME_STOPWATCH, .default_minutes = 1},
+        {.id = 1, .label = "MED", .name = "MEDITATION", .type = HABIT_TYPE_TIME, .time_mode = HABIT_TIME_TIMER, .default_minutes = 12},
+        {.id = 2, .label = "STR", .name = "STRACKA", .type = HABIT_TYPE_COUNT, .time_mode = HABIT_TIME_STOPWATCH, .default_minutes = 1},
     };
     uint8_t encoded[HABIT_CODEC_HABITS_MAX_SIZE] = {0};
     size_t written = 0;
@@ -79,6 +111,7 @@ static void test_daily_roundtrip_and_corruption(void)
 
 int main(void)
 {
+    test_v3_habit_migration();
     test_habits_roundtrip_and_corruption();
     test_log_roundtrip_and_corruption();
     test_session_roundtrip();

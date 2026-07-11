@@ -20,6 +20,7 @@ typedef struct {
 esp_err_t ssd1306_oled_init(const ssd1306_oled_config_t *config);
 esp_err_t ssd1306_oled_set_contrast(uint8_t contrast);
 esp_err_t ssd1306_oled_set_enabled(bool enabled);
+esp_err_t ssd1306_oled_restore_controller(void);
 esp_err_t ssd1306_oled_clear(void);
 esp_err_t ssd1306_oled_present(void);
 esp_err_t ssd1306_oled_draw_text(uint8_t x, uint8_t page, const char *text);

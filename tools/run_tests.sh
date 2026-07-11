@@ -23,6 +23,8 @@ run_test finish_alert_test -Icomponents/finish_alert/include tests/finish_alert_
 run_test oled_frame_test -Icomponents/oled_frame/include tests/oled_frame_test.c components/oled_frame/oled_frame.c
 run_test sync_policy_test -Icomponents/sync_policy/include tests/sync_policy_test.c components/sync_policy/sync_policy.c
 run_test sync_payload_test -Icomponents/habit_app/include -Icomponents/sync_payload/include tests/sync_payload_test.c components/sync_payload/sync_payload.c
+run_test tickstone_ble_protocol_test -Icomponents/habit_app/include -Icomponents/tickstone_ble/include tests/tickstone_ble_protocol_test.c components/tickstone_ble/tickstone_ble_protocol.c
 
+python3 tests/tickstone_settings_test.py
 python3 tools/render_oled_flows.py >/dev/null
 echo "all host tests and OLED renders: OK"

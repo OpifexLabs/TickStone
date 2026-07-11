@@ -30,6 +30,8 @@ static httpd_handle_t s_server;
 static esp_netif_t *s_ap;
 static bool s_sntp_started;
 static char s_sync_url[192];
+static char s_ap_ssid[33];
+static char s_network_options[3000];
 
 static const char PAGE[] =
 "<!doctype html><html lang='sv'><meta name='viewport' content='width=device-width,initial-scale=1'>"
@@ -37,35 +39,108 @@ static const char PAGE[] =
 "h1{font-size:28px}fieldset{border:1px solid #bbb;margin:12px 0;padding:12px}label{display:block;margin:8px 0}"
 "input,select,button{font:inherit;padding:10px;width:100%%;box-sizing:border-box}button{background:#111;color:white;border:0}"
 "small{color:#555}</style><h1>TickStone</h1><form method='post' action='/save'>"
-"<fieldset><legend>WiFi</legend><label>Nätverksnamn<input name='ssid' maxlength='32'></label><label>Lösenord<input name='pass' type='password' maxlength='63'></label>"
+"<fieldset><legend>WiFi</legend><label>Nätverk<select name='ssid'><option value=''>Välj nätverk</option>%s</select></label>"
+"<label>Dolt nätverk (valfritt)<input name='ssid_custom' maxlength='32'></label><label>Lösenord<input name='pass' type='password' maxlength='63'></label>"
 "<label>Synk-URL<input name='url' maxlength='191' placeholder='https://...'></label></fieldset>"
 "<p><small>Habit-inställningar</small></p>%s"
 "<button>Spara</button></form>";
 
+static bool append_html_escaped(char *out, size_t size, size_t *used, const char *text)
+{
+    while (*text) {
+        const char *escaped = NULL;
+        switch (*text) {
+        case '&': escaped = "&amp;"; break;
+        case '<': escaped = "&lt;"; break;
+        case '>': escaped = "&gt;"; break;
+        case '\'': escaped = "&#39;"; break;
+        case '"': escaped = "&quot;"; break;
+        default: break;
+        }
+        const char one[2] = {*text, 0};
+        const char *part = escaped ? escaped : one;
+        const size_t length = strlen(part);
+        if (*used + length >= size) return false;
+        memcpy(out + *used, part, length);
+        *used += length;
+        out[*used] = 0;
+        ++text;
+    }
+    return true;
+}
+
+static void build_network_options(char *out, size_t size)
+{
+    wifi_scan_config_t scan = {.show_hidden = false};
+    if (esp_wifi_scan_start(&scan, true) != ESP_OK) return;
+
+    uint16_t count = 20;
+    wifi_ap_record_t *records = calloc(count, sizeof(*records));
+    if (!records) return;
+    if (esp_wifi_scan_get_ap_records(&count, records) != ESP_OK) {
+        free(records);
+        return;
+    }
+
+    size_t used = 0;
+    for (uint16_t i = 0; i < count; ++i) {
+        const char *ssid = (const char *)records[i].ssid;
+        if (!ssid[0]) continue;
+        bool duplicate = false;
+        for (uint16_t previous = 0; previous < i; ++previous) {
+            duplicate = duplicate || strcmp(ssid, (const char *)records[previous].ssid) == 0;
+        }
+        if (duplicate || used + 18 >= size) continue;
+        memcpy(out + used, "<option value='", 15); used += 15; out[used] = 0;
+        if (!append_html_escaped(out, size, &used, ssid) || used + 2 >= size) break;
+        memcpy(out + used, "'>", 2); used += 2; out[used] = 0;
+        if (!append_html_escaped(out, size, &used, ssid) || used + 10 >= size) break;
+        memcpy(out + used, "</option>", 9); used += 9; out[used] = 0;
+    }
+    free(records);
+}
+
 static esp_err_t send_page(httpd_req_t *req)
 {
-    char rows[7000] = {0}; size_t used = 0;
+    const size_t rows_size = 7000;
+    char *rows = calloc(1, rows_size);
+    if (!rows) {
+        return httpd_resp_send_err(req, 500, "Minnet rackte inte");
+    }
+    size_t used = 0;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     for (size_t i = 0; i < HABIT_APP_MAX_HABITS; ++i) {
         const habit_config_t *h = NULL;
         for (size_t j = 0; j < s_count; ++j) {
             if (s_habits[j].id == i) { h = &s_habits[j]; break; }
         }
-        used += snprintf(rows + used, sizeof(rows) - used,
+        int written = snprintf(rows + used, rows_size - used,
             "<fieldset><legend>Habit %u</legend><label>Kod (A-Z, 0-9, max 3)<input name='n%u' maxlength='3' pattern='[A-Za-z0-9]{0,3}' value='%s'></label>"
+            "<label>Namn (max 15)<input name='f%u' maxlength='15' pattern='[A-Za-z0-9 ]{0,15}' value='%s'></label>"
             "<label>Typ<select name='t%u'><option value='c'%s>Tillfalle</option><option value='t'%s>Timer</option><option value='s'%s>Tidtagare</option></select></label>"
             "<label>Standardminuter<input name='d%u' type='number' min='1' max='1440' value='%u'></label></fieldset>",
-            (unsigned)(i + 1), (unsigned)i, h ? h->label : "", (unsigned)i,
+            (unsigned)(i + 1), (unsigned)i, h ? h->label : "",
+            (unsigned)i, h ? h->name : "", (unsigned)i,
             (!h || h->type == HABIT_TYPE_COUNT) ? " selected" : "",
             (h && h->type == HABIT_TYPE_TIME && h->time_mode == HABIT_TIME_TIMER) ? " selected" : "",
             (h && h->type == HABIT_TYPE_TIME && h->time_mode == HABIT_TIME_STOPWATCH) ? " selected" : "",
             (unsigned)i, h ? h->default_minutes : 5);
+        if (written < 0 || (size_t)written >= rows_size - used) {
+            xSemaphoreGive(s_lock);
+            free(rows);
+            return httpd_resp_send_err(req, 500, "Sidan blev for stor");
+        }
+        used += (size_t)written;
     }
     xSemaphoreGive(s_lock);
-    size_t html_size = sizeof(PAGE) + strlen(rows);
+    size_t html_size = sizeof(PAGE) + strlen(s_network_options) + used;
     char *html = malloc(html_size);
-    if (!html) return ESP_ERR_NO_MEM;
-    snprintf(html, html_size, PAGE, rows);
+    if (!html) {
+        free(rows);
+        return httpd_resp_send_err(req, 500, "Minnet rackte inte");
+    }
+    snprintf(html, html_size, PAGE, s_network_options, rows);
+    free(rows);
     httpd_resp_set_type(req, "text/html; charset=utf-8");
     esp_err_t err = httpd_resp_send(req, html, HTTPD_RESP_USE_STRLEN);
     free(html); return err;
@@ -113,7 +188,14 @@ static void start_server(void)
 
 static void on_event(void *arg, esp_event_base_t base, int32_t id, void *data)
 {
-    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) { s_status.connected = false; esp_wifi_connect(); }
+    if (base == WIFI_EVENT && id == WIFI_EVENT_STA_DISCONNECTED) {
+        s_status.connected = false;
+        s_status.provisioning = true;
+        strlcpy(s_status.address, "192.168.4.1", sizeof(s_status.address));
+        esp_wifi_set_mode(WIFI_MODE_APSTA);
+        esp_wifi_connect();
+        ESP_LOGW(TAG, "WiFi disconnected; provisioning available on %s", s_ap_ssid);
+    }
     if (base == IP_EVENT && id == IP_EVENT_STA_GOT_IP) {
         ip_event_got_ip_t *e = data; snprintf(s_status.address, sizeof(s_status.address), IPSTR, IP2STR(&e->ip_info.ip));
         s_status.connected = true; start_server();
@@ -137,16 +219,19 @@ esp_err_t tickstone_network_start(const habit_config_t *habits, size_t count)
     ESP_ERROR_CHECK(esp_event_handler_register(WIFI_EVENT, ESP_EVENT_ANY_ID, on_event, NULL));
     ESP_ERROR_CHECK(esp_event_handler_register(IP_EVENT, IP_EVENT_STA_GOT_IP, on_event, NULL));
     wifi_config_t sta = {0}; esp_wifi_get_config(WIFI_IF_STA, &sta);
-    bool provision = sta.sta.ssid[0] == 0;
-    if (provision) {
-        uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
-        wifi_config_t ap = {.ap={.channel=1,.max_connection=4,.authmode=WIFI_AUTH_WPA2_PSK}};
-        snprintf((char *)ap.ap.ssid, sizeof(ap.ap.ssid), "TickStone-%02X%02X", mac[4], mac[5]); ap.ap.ssid_len = strlen((char *)ap.ap.ssid);
-        strlcpy((char *)ap.ap.password, "tickstone", sizeof(ap.ap.password));
-        ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA)); ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
-        strcpy(s_status.address, "192.168.4.1"); s_status.provisioning = true;
-    } else ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_STA));
-    ESP_ERROR_CHECK(esp_wifi_start()); if (!provision) esp_wifi_connect(); else start_server();
+    const bool has_saved_network = sta.sta.ssid[0] != 0;
+    uint8_t mac[6]; esp_read_mac(mac, ESP_MAC_WIFI_SOFTAP);
+    wifi_config_t ap = {.ap={.channel=1,.max_connection=4,.authmode=WIFI_AUTH_WPA2_PSK}};
+    snprintf(s_ap_ssid, sizeof(s_ap_ssid), "TickStone-%02X%02X", mac[4], mac[5]);
+    strlcpy((char *)ap.ap.ssid, s_ap_ssid, sizeof(ap.ap.ssid)); ap.ap.ssid_len = strlen(s_ap_ssid);
+    strlcpy((char *)ap.ap.password, "tickstone", sizeof(ap.ap.password));
+    ESP_ERROR_CHECK(esp_wifi_set_mode(WIFI_MODE_APSTA));
+    ESP_ERROR_CHECK(esp_wifi_set_config(WIFI_IF_AP, &ap));
+    strcpy(s_status.address, "192.168.4.1"); s_status.provisioning = true;
+    ESP_ERROR_CHECK(esp_wifi_start());
+    build_network_options(s_network_options, sizeof(s_network_options));
+    start_server();
+    if (has_saved_network) esp_wifi_connect();
     ESP_LOGI(TAG, "Web UI: http://%s", s_status.address); return ESP_OK;
 }
 
