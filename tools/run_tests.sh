@@ -27,5 +27,6 @@ run_test tickstone_ble_protocol_test -Icomponents/habit_app/include -Icomponents
 
 python3 tests/tickstone_settings_test.py
 python3 tests/tickstone_store_test.py
+python3 tests/tickstone_dashboard_test.py
 python3 tools/render_oled_flows.py >/dev/null
 echo "all host tests and OLED renders: OK"

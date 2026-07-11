@@ -1,0 +1,37 @@
+[Unit]
+Description=TickStone local statistics dashboard
+After=network-online.target tickstone-sync.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=allangamal
+WorkingDirectory=/home/allangamal/TickStone
+Environment=HOME=/home/allangamal
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/usr/bin/python3 /home/allangamal/TickStone/tools/tickstone_dashboard.py --host 0.0.0.0 --port 8750 --database /home/allangamal/.local/share/tickstone/tickstone.sqlite3
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectSystem=strict
+ProtectHome=read-only
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectKernelTunables=true
+ProtectHostname=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
+ReadOnlyPaths=/home/allangamal/.local/share/tickstone
+
+[Install]
+WantedBy=multi-user.target
