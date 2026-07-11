@@ -6,6 +6,7 @@
 
 #include "driver/gpio.h"
 #include "esp_err.h"
+#include "freertos/FreeRTOS.h"
 
 #ifdef __cplusplus
 extern "C" {
@@ -35,6 +36,7 @@ esp_err_t buttons_init(const gpio_num_t *pins,
 
 bool buttons_poll(button_event_t *event);
 bool buttons_active(void);
+void buttons_wait(TickType_t timeout);
 
 #ifdef __cplusplus
 }

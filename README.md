@@ -1,114 +1,63 @@
-# habit_tracker_esp32s3
+# TickStone
 
-Native ESP-IDF MVP for en liten ESP32-S3-baserad habit tracker på breadboard.
+TickStone ar en batterimedveten habit tracker for ESP32-C3 med 128x128 SSD1306 OLED och tre knappar. Upp till tio habits kan vara antingen tillfallen eller tid, med timer eller tidtagare. Loggar sparas lokalt och synkas nar WiFi finns.
 
-Första prototypen har 3 habits, 3 vita LED-lysdioder, 3 taktila knappar och en MAX7219 8x8 dot matrix-display som visar en timer. Batteri, deep sleep, WiFi, Bluetooth, NVS och CAD är medvetet utanför denna iteration.
+## Koppling
 
-## Funktioner i MVP
+Knapparna ar active-low och anvander intern pull-up: `GPIO -> knapp -> GND`.
 
-- Bootar och loggar att habit tracker startar.
-- Initierar MAX7219 och visar `20` som två kompakta siffror på 8x8-matrisen.
-- MAX7219-komponenten kan också visa två siffror i 7-segmentsstil på matrisdisplayen.
-- Tre interna habits: habit 1, 2 och 3.
-- Vald habit visas med motsvarande LED.
-- Vänster knapp minskar vald habits timer med 1 minut.
-- Höger knapp ökar vald habits timer med 1 minut.
-- Play-knapp startar/pausar timern.
-- Långtryck vänster väljer föregående habit.
-- Långtryck höger väljer nästa habit.
-- Långtryck play resetar vald habits timer till dess duration.
-- Timer räknar ner från `20` minuter till `00`.
-- När mer än 60 sekunder återstår visas minuter avrundat uppåt. Under sista minuten visas sekunder.
-- Displayens mittpunkter blinkar när timern kör och lyser fast när den är pausad.
-- När timern är klar blinkar vald habits LED.
-- Knapparna använder debounce på ca 40 ms och långtryck på ca 700 ms.
+| Funktion | GPIO |
+| --- | ---: |
+| OLED SDA | 7 |
+| OLED SCL | 6 |
+| Vanster knapp | 20 |
+| Mittenknapp | 8 |
+| Hoger knapp | 9 |
 
-Alla standardpinnar finns i `main/app_config.h` så att de är enkla att ändra.
-Displayen är konfigurerad med `MAX7219_MATRIX_ROTATION_LEFT_90` i `main/app_main.c`.
+OLED drivs med 3V3 och GND. Alla pinnummer finns i `main/app_config.h`.
 
-## Kopplingar
+## Anvandning
 
-Knapparna är active-low med intern pullup:
+- Hem har tre lagen: habits, action och loggar.
+- Kort vanster/hoger bladdrar inom aktuell vy. Mitten valjer eller startar.
+- Lang vanster/hoger byter hemlage. Lang mitten visar statistik eller sparar en session.
+- Displayen dimmas efter 5 sekunder. Utan aktiv timer slacks den efter ytterligare 10 sekunder; en aktiv timer far ligga dimmad i upp till en minut.
+- Forsta knapptrycket fran dimmat/slackt lage vacker bara displayen.
 
-```text
-GPIO -> knapp -> GND
-```
+## WiFi och webbvy
 
-| Funktion | ESP32-S3 GPIO | Notering |
-| --- | ---: | --- |
-| MAX7219 DIN/MOSI | GPIO4 | Data till display |
-| MAX7219 CLK | GPIO5 | Klocka till display |
-| MAX7219 CS/LOAD | GPIO6 | Chip select/load |
-| LED habit 1 | GPIO15 | LED med lämpligt seriemotstånd |
-| LED habit 2 | GPIO16 | LED med lämpligt seriemotstånd |
-| LED habit 3 | GPIO17 | LED med lämpligt seriemotstånd |
-| Button left | GPIO7 | Active-low, intern pullup |
-| Button play | GPIO8 | Active-low, intern pullup |
-| Button right | GPIO9 | Active-low, intern pullup |
+Utan sparat natverk startar enheten installationsnatet `TickStone-XXXX` med losenordet `tickstone`. Anslut och oppna `http://192.168.4.1`. Dar kan WiFi, synk-URL och upp till tio habits konfigureras. Pa hemnatet ar samma sida tillganglig pa enhetens DHCP-adress, som skrivs i serielloggen.
 
-MAX7219-moduler drivs ofta med 5V medan ESP32-S3 använder 3.3V logic. Om displayen beter sig konstigt kan en level shifter behövas mellan ESP32-S3 och MAX7219.
+Klockan synkas med SNTP och anvander tidszonen Europe/Stockholm. En TickStone-dag byter vid 05:00 lokal tid. Veckor ar mandag-sondag och manader foljer kalendern, inklusive sommartid.
 
-## Build och flash
+## Synk-API
 
-Kör från projektets rot:
+Varje osynkad logg skickas med `POST` som JSON till konfigurerad URL. Headern `Idempotency-Key` innehaller loggens stabila ID. Alla 2xx-svar markerar posten synkad. Fel ger exponentiell backoff fran 5 sekunder upp till 15 minuter; lokal loggning fortsatter offline. HTTPS verifieras mot ESP-IDF:s CA-bundle.
 
-```sh
-idf.py set-target esp32s3
-idf.py build
-idf.py -p PORT flash monitor
-```
+Servern ska behandla samma idempotensnyckel som samma operation. JSON innehaller `id`, `habit_id`, `type`, `started_at`, `ended_at`, `duration_seconds`, `count` och `deleted`.
 
-På macOS är `PORT` ofta något i stil med `/dev/cu.*`, till exempel `/dev/cu.usbmodemXXXX`.
+## Data och energi
 
-## Verifiering i denna miljö
+- Versionerat little-endian-format med CRC, explicit migrering fran tidigare NVS-format och ingen automatisk radering vid NVS-fel.
+- Ringlager med 512 poster och kompakta dagssammanfattningar for 70 kalenderdagar. Osynkade poster skrivs aldrig over; UI visar `LOG FULL / SYNC NEEDED` om kon gar full.
+- CPU skalar mellan 40 och 160 MHz, FreeRTOS anvander tickless idle och WiFi modem-sleep. Automatisk light sleep ar avstangd pa USB-prototypen eftersom den kopplar ned C3:ans USB-Serial/JTAG; djupsomn aktiveras forst med batteri och definierade wake-pinnar.
+- NVS har en egen 128 KB-partition och appen anvander resterande flash.
 
-ESP-IDF v5.5.3 installerades lokalt i `~/esp/esp-idf`.
-
-Kommandon som kördes:
+## Bygg och flash
 
 ```sh
 source "$HOME/esp/esp-idf/export.sh"
-idf.py set-target esp32s3
 idf.py build
-idf.py -p /dev/cu.usbmodem5AF71039601 flash
+idf.py -p /dev/cu.usbmodemXXXX flash monitor
 ```
 
-Resultat:
+Projektet ar konfigurerat for `esp32c3`. Att byta target skriver om `sdkconfig` och ska inte goras for den har hardvaran.
 
-```text
-Project build complete.
-Done
-Habit tracker started. Displaying 20:00
-```
+## Tester
 
-Senaste ändringen med tvåsiffrig 7-segments-timer är byggd med `idf.py build`, men inte flashad till kortet ännu.
+Vardtesterna tacker habit-floden, kalendergranser och DST, codec/CRC, legacy-migrering, rollover/power-loss, full osynkad loggko, webbvalidering, synkbackoff, framebuffer dirty pages samt displayens idle-regler. OLED-flodena renderas fran samma font-, ikon- och tillstandsdata som firmware.
 
-## Projektstruktur
-
-```text
-CMakeLists.txt
-main/CMakeLists.txt
-main/app_main.c
-main/app_config.h
-components/max7219_matrix/
-components/buttons/
-components/habit_leds/
-README.md
-sdkconfig.defaults
-```
-
-## Komponenter
-
-- `components/max7219_matrix`: liten egen MAX7219 matrix-driver med `clear()`, `set_intensity()` och `draw_time_mm_ss()`.
-- `max7219_matrix_draw_7seg_2_digit(value, leading_zero)` visar `0`-`99`. På en ensam 8x8-matris används ett kompakt 3x7-läge; på bredare kedjade matriser används större 7-segmentsliknande siffror.
-- `components/buttons`: återanvändbar knapphantering med events för `SHORT_PRESS` och `LONG_PRESS`.
-- `components/habit_leds`: enkel GPIO-abstraktion för habit-LEDs, förberedd så att PWM/LEDC kan läggas till senare.
-
-Exempel:
-
-```c
-ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(7, false)); // visar "7"
-ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(7, true));  // visar "07"
-ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit(42, true)); // visar "42"
-ESP_ERROR_CHECK(max7219_matrix_draw_7seg_2_digit_clock(20, true, true)); // visar "20" med klockpunkter
+```sh
+tools/run_tests.sh
+idf.py build
 ```

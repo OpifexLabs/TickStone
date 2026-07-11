@@ -8,26 +8,58 @@
 
 #include "esp_check.h"
 #include "esp_log.h"
+#include "esp_pm.h"
 #include "esp_timer.h"
 
 #include "app_config.h"
 #include "buttons.h"
+#include "clock_service.h"
 #include "display_idle.h"
+#include "finish_alert.h"
 #include "habit_app.h"
 #include "habit_storage.h"
 #include "ssd1306_oled.h"
+#include "tickstone_network.h"
+#include "sync_policy.h"
 
 static const char *TAG = APP_NAME;
 
 static habit_app_t s_app;
+static sync_policy_t s_sync_policy;
 
-typedef struct {
-    bool active;
-    bool visible;
-    bool consume_until_release;
-    int64_t ends_at_ms;
-    int64_t next_toggle_ms;
-} finish_alert_t;
+static void apply_web_configuration(void)
+{
+    if (s_app.session_active) return;
+    habit_config_t habits[HABIT_APP_MAX_HABITS];
+    size_t count = 0;
+    if (tickstone_network_take_habits(habits, &count) && habit_app_set_habits(&s_app, habits, count)) {
+        ESP_LOGI(TAG, "Applied %u habits from web UI", (unsigned)count);
+    }
+}
+
+static esp_err_t sync_one_pending_log(int64_t now_ms)
+{
+    if (!sync_policy_due(&s_sync_policy, now_ms)) return ESP_OK;
+    for (size_t i = 0; i < s_app.log_count; ++i) {
+        habit_log_t log;
+        if (!habit_app_get_log(&s_app, i, &log) || log.synced) continue;
+        if (tickstone_network_sync_log(&log)) {
+            habit_app_mark_log_synced(&s_app, log.id);
+            bool more_pending = false;
+            for (size_t j = i + 1; j < s_app.log_count; ++j) {
+                if (!s_app.logs[j].synced) { more_pending = true; break; }
+            }
+            sync_policy_succeeded(&s_sync_policy, now_ms, more_pending);
+            esp_err_t err = habit_storage_save_logs(&s_app);
+            if (err == ESP_OK) s_app.logs_dirty = false;
+            return err;
+        }
+        sync_policy_failed(&s_sync_policy, now_ms);
+        return ESP_OK;
+    }
+    sync_policy_succeeded(&s_sync_policy, now_ms, false);
+    return ESP_OK;
+}
 
 static const uint8_t s_ui_icons[HABIT_UI_ICON_BACK + 1][8] = {
     [HABIT_UI_ICON_ACTION] = {0x10, 0x18, 0x1c, 0x1e, 0x1c, 0x18, 0x10, 0x00},
@@ -193,8 +225,7 @@ static esp_err_t render_screen(const habit_screen_t *screen)
     ESP_RETURN_ON_ERROR(draw_icon(12, 12, screen->left_action), TAG, "left action failed");
     ESP_RETURN_ON_ERROR(draw_icon(56, 12, screen->ok_action), TAG, "ok action failed");
     ESP_RETURN_ON_ERROR(draw_icon(100, 12, screen->right_action), TAG, "right action failed");
-
-    return ESP_OK;
+    return ssd1306_oled_present();
 }
 
 static esp_err_t apply_display_idle_state(display_idle_state_t state)
@@ -216,14 +247,25 @@ static esp_err_t apply_display_idle_state(display_idle_state_t state)
 
 static esp_err_t persist_app_state(void)
 {
-    if (habit_app_take_habits_dirty(&s_app)) {
+    if (s_app.habits_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_habits(&s_app), TAG, "save habits failed");
+        s_app.habits_dirty = false;
+        habit_config_t habits[HABIT_APP_MAX_HABITS];
+        size_t count = habit_app_copy_habits(&s_app, habits, HABIT_APP_MAX_HABITS);
+        tickstone_network_update_habits(habits, count);
     }
-    if (habit_app_take_logs_dirty(&s_app)) {
+    if (s_app.daily_dirty) {
+        ESP_RETURN_ON_ERROR(habit_storage_save_daily(&s_app), TAG, "save daily summaries failed");
+        s_app.daily_dirty = false;
+    }
+    if (s_app.logs_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_logs(&s_app), TAG, "save logs failed");
+        s_app.logs_dirty = false;
+        sync_policy_request_now(&s_sync_policy, now_milliseconds());
     }
-    if (habit_app_take_session_dirty(&s_app)) {
+    if (s_app.session_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_session(&s_app), TAG, "save session failed");
+        s_app.session_dirty = false;
     }
     return ESP_OK;
 }
@@ -232,13 +274,7 @@ static esp_err_t finish_alert_start(finish_alert_t *alert,
                                     display_idle_t *display_idle,
                                     int64_t now_ms)
 {
-    *alert = (finish_alert_t) {
-        .active = true,
-        .visible = true,
-        .consume_until_release = false,
-        .ends_at_ms = now_ms + FINISHED_ALERT_MS,
-        .next_toggle_ms = now_ms + FINISHED_BLINK_MS,
-    };
+    finish_alert_begin(alert, now_ms, FINISHED_ALERT_MS, FINISHED_BLINK_MS);
     display_idle_init(display_idle, now_ms, OLED_DIM_AFTER_MS, OLED_OFF_AFTER_MS);
     ESP_RETURN_ON_ERROR(ssd1306_oled_set_contrast(OLED_FULL_CONTRAST),
                         TAG,
@@ -248,21 +284,6 @@ static esp_err_t finish_alert_start(finish_alert_t *alert,
     return ESP_OK;
 }
 
-static esp_err_t finish_alert_stop(finish_alert_t *alert,
-                                   display_idle_t *display_idle,
-                                   int64_t now_ms,
-                                   bool consume_until_release)
-{
-    alert->active = false;
-    alert->visible = true;
-    alert->consume_until_release = consume_until_release;
-    display_idle_init(display_idle, now_ms, OLED_DIM_AFTER_MS, OLED_OFF_AFTER_MS);
-    ESP_RETURN_ON_ERROR(ssd1306_oled_set_contrast(OLED_FULL_CONTRAST),
-                        TAG,
-                        "finish alert restore contrast failed");
-    return ssd1306_oled_set_enabled(true);
-}
-
 static esp_err_t finish_alert_update(finish_alert_t *alert,
                                      display_idle_t *display_idle,
                                      int64_t now_ms,
@@ -270,133 +291,45 @@ static esp_err_t finish_alert_update(finish_alert_t *alert,
                                      bool button_event,
                                      bool *consume_button_event)
 {
-    *consume_button_event = false;
-
-    if (alert->consume_until_release) {
-        *consume_button_event = button_event;
-        if (!button_active) {
-            alert->consume_until_release = false;
-        }
-        return ESP_OK;
+    finish_alert_result_t result = finish_alert_step(alert, now_ms, button_active, button_event);
+    *consume_button_event = result.consume_button_event;
+    if (result.visibility_changed) {
+        ESP_RETURN_ON_ERROR(ssd1306_oled_set_enabled(result.visible), TAG, "finish alert blink failed");
     }
-
-    if (!alert->active) {
-        return ESP_OK;
-    }
-
-    if (button_active || button_event) {
-        *consume_button_event = button_event;
-        return finish_alert_stop(alert, display_idle, now_ms, button_active);
-    }
-
-    if (now_ms >= alert->ends_at_ms) {
-        return finish_alert_stop(alert, display_idle, now_ms, false);
-    }
-
-    if (now_ms >= alert->next_toggle_ms) {
-        int64_t toggles = ((now_ms - alert->next_toggle_ms) / FINISHED_BLINK_MS) + 1;
-        if ((toggles & 1) != 0) {
-            alert->visible = !alert->visible;
-            ESP_RETURN_ON_ERROR(ssd1306_oled_set_enabled(alert->visible),
-                                TAG,
-                                "finish alert blink failed");
-        }
-        alert->next_toggle_ms += toggles * FINISHED_BLINK_MS;
+    if (result.stopped) {
+        display_idle_init(display_idle, now_ms, OLED_DIM_AFTER_MS, OLED_OFF_AFTER_MS);
+        ESP_RETURN_ON_ERROR(ssd1306_oled_set_contrast(OLED_FULL_CONTRAST), TAG, "finish alert restore contrast failed");
+        ESP_RETURN_ON_ERROR(ssd1306_oled_set_enabled(true), TAG, "finish alert restore display failed");
     }
     return ESP_OK;
 }
-
-#if CONFIG_TICKSTONE_STORAGE_SELF_TEST
-static void storage_self_test_press(habit_app_t *app,
-                                    habit_button_t button,
-                                    habit_press_t press,
-                                    int64_t now_seconds)
-{
-    habit_app_handle_button(app, button, press, now_seconds);
-}
-
-static esp_err_t run_storage_self_test(void)
-{
-    static habit_app_t app;
-    static habit_app_t loaded;
-    static habit_app_t reloaded;
-
-    ESP_LOGW(TAG, "TickStone storage self-test is enabled; erasing TickStone NVS namespace");
-    ESP_RETURN_ON_ERROR(habit_storage_erase_all(), TAG, "erase self-test namespace failed");
-
-    habit_app_init(&app);
-    storage_self_test_press(&app, HABIT_BUTTON_LEFT, HABIT_PRESS_LONG, 5 * 3600 - 10);
-    storage_self_test_press(&app, HABIT_BUTTON_OK, HABIT_PRESS_LONG, 5 * 3600 - 9);
-    ESP_RETURN_ON_FALSE(habit_app_take_habits_dirty(&app), ESP_FAIL, TAG, "add habit did not mark habits dirty");
-    ESP_RETURN_ON_ERROR(habit_storage_save_habits(&app), TAG, "save habits failed");
-
-    habit_app_init(&loaded);
-    ESP_RETURN_ON_ERROR(habit_storage_load(&loaded, 5 * 3600 - 8), TAG, "load habits roundtrip failed");
-    ESP_RETURN_ON_FALSE(loaded.habit_count == 4, ESP_FAIL, TAG, "loaded habit count mismatch");
-    ESP_RETURN_ON_FALSE(strcmp(loaded.habits[3].label, "H3") == 0, ESP_FAIL, TAG, "loaded added habit mismatch");
-    ESP_RETURN_ON_ERROR(habit_storage_erase_all(), TAG, "erase after habits self-test failed");
-
-    habit_app_init(&app);
-    storage_self_test_press(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 5 * 3600);
-    ESP_RETURN_ON_FALSE(habit_app_take_logs_dirty(&app), ESP_FAIL, TAG, "count log did not mark logs dirty");
-    ESP_RETURN_ON_ERROR(habit_storage_save_logs(&app), TAG, "save count log failed");
-
-    habit_app_tick(&app, 5 * 3600 + 3);
-    storage_self_test_press(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 5 * 3600 + 4);
-    storage_self_test_press(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 5 * 3600 + 5);
-    storage_self_test_press(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 5 * 3600 + 6);
-    ESP_RETURN_ON_FALSE(habit_app_take_session_dirty(&app), ESP_FAIL, TAG, "start session did not mark session dirty");
-    ESP_RETURN_ON_ERROR(habit_storage_save_session(&app), TAG, "save active session failed");
-
-    habit_app_init(&loaded);
-    ESP_RETURN_ON_ERROR(habit_storage_load(&loaded, 5 * 3600 + 9), TAG, "load roundtrip failed");
-    ESP_RETURN_ON_FALSE(loaded.log_count == 1, ESP_FAIL, TAG, "loaded log count mismatch");
-    ESP_RETURN_ON_FALSE(!loaded.logs[0].synced, ESP_FAIL, TAG, "loaded log synced flag mismatch");
-    ESP_RETURN_ON_FALSE(loaded.logs[0].count_value == 1, ESP_FAIL, TAG, "loaded count value mismatch");
-    ESP_RETURN_ON_FALSE(loaded.session_active, ESP_FAIL, TAG, "loaded session is not active");
-    ESP_RETURN_ON_FALSE(loaded.screen == HABIT_SCREEN_SESSION, ESP_FAIL, TAG, "loaded screen is not session");
-    ESP_RETURN_ON_FALSE(strcmp(loaded.habits[loaded.selected].label, "MED") == 0,
-                        ESP_FAIL,
-                        TAG,
-                        "loaded selected habit mismatch");
-
-    storage_self_test_press(&loaded, HABIT_BUTTON_OK, HABIT_PRESS_LONG, 5 * 3600 + 15);
-    ESP_RETURN_ON_FALSE(habit_app_take_logs_dirty(&loaded), ESP_FAIL, TAG, "saved session did not dirty logs");
-    ESP_RETURN_ON_FALSE(habit_app_take_session_dirty(&loaded), ESP_FAIL, TAG, "saved session did not dirty session");
-    ESP_RETURN_ON_ERROR(habit_storage_save_logs(&loaded), TAG, "save session log failed");
-    ESP_RETURN_ON_ERROR(habit_storage_save_session(&loaded), TAG, "clear saved session failed");
-
-    habit_app_init(&reloaded);
-    ESP_RETURN_ON_ERROR(habit_storage_load(&reloaded, 5 * 3600 + 20), TAG, "reload after save failed");
-    ESP_RETURN_ON_FALSE(reloaded.log_count == 2, ESP_FAIL, TAG, "reloaded log count mismatch");
-    ESP_RETURN_ON_FALSE(!reloaded.session_active, ESP_FAIL, TAG, "session key was not cleared");
-    ESP_RETURN_ON_FALSE(reloaded.logs[1].type == HABIT_TYPE_TIME, ESP_FAIL, TAG, "time log type mismatch");
-    ESP_RETURN_ON_FALSE(!reloaded.logs[1].synced, ESP_FAIL, TAG, "time log synced flag mismatch");
-    ESP_RETURN_ON_ERROR(habit_storage_erase_all(), TAG, "final self-test cleanup failed");
-
-    ESP_LOGI(TAG, "TickStone storage self-test PASS");
-    return ESP_OK;
-}
-#endif
 
 void app_main(void)
 {
     ESP_LOGI(TAG, "Habit tracker starting");
+    sync_policy_init(&s_sync_policy);
+    const esp_pm_config_t power = {
+        .max_freq_mhz = 160,
+        .min_freq_mhz = 40,
+        .light_sleep_enable = false,
+    };
+    ESP_ERROR_CHECK(esp_pm_configure(&power));
     vTaskDelay(pdMS_TO_TICKS(200));
 
     ssd1306_oled_config_t oled_config = {0};
     ESP_ERROR_CHECK(habit_storage_init());
-#if CONFIG_TICKSTONE_STORAGE_SELF_TEST
-    ESP_ERROR_CHECK(run_storage_self_test());
-    while (true) {
-        vTaskDelay(pdMS_TO_TICKS(1000));
-    }
-#endif
     ESP_ERROR_CHECK(init_oled(&oled_config));
     ESP_ERROR_CHECK(init_buttons());
 
+    clock_service_init();
     habit_app_init(&s_app);
+    int64_t initial_utc = 0;
+    bool initial_clock_synced = clock_service_now_utc(&initial_utc);
+    habit_app_update_clock(&s_app, initial_utc, initial_clock_synced);
     ESP_ERROR_CHECK(habit_storage_load(&s_app, now_seconds()));
+    habit_config_t network_habits[HABIT_APP_MAX_HABITS];
+    size_t network_habit_count = habit_app_copy_habits(&s_app, network_habits, HABIT_APP_MAX_HABITS);
+    ESP_ERROR_CHECK(tickstone_network_start(network_habits, network_habit_count));
 
     habit_screen_t last_screen = {0};
     bool has_last_screen = false;
@@ -409,8 +342,12 @@ void app_main(void)
     uint32_t seen_completion_sequence = habit_app_completion_sequence(&s_app);
 
     while (true) {
+        apply_web_configuration();
         const int64_t seconds = now_seconds();
         const int64_t milliseconds = now_milliseconds();
+        int64_t utc_seconds = 0;
+        bool clock_synced = clock_service_now_utc(&utc_seconds);
+        habit_app_update_clock(&s_app, utc_seconds, clock_synced);
         habit_app_tick(&s_app, seconds);
 
         uint32_t completion_sequence = habit_app_completion_sequence(&s_app);
@@ -463,6 +400,7 @@ void app_main(void)
             seen_completion_sequence = completion_sequence;
         }
         ESP_ERROR_CHECK(persist_app_state());
+        ESP_ERROR_CHECK(sync_one_pending_log(milliseconds));
 
         const habit_screen_t *screen = habit_app_screen(&s_app, seconds);
         if (display_idle.state != DISPLAY_IDLE_OFF &&
@@ -472,6 +410,6 @@ void app_main(void)
             has_last_screen = true;
         }
 
-        vTaskDelay(finish_alert.active ? pdMS_TO_TICKS(50) : next_loop_delay(&s_app));
+        buttons_wait(finish_alert.active ? pdMS_TO_TICKS(50) : next_loop_delay(&s_app));
     }
 }

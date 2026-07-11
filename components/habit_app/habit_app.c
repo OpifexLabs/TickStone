@@ -3,10 +3,8 @@
 #include <stdio.h>
 #include <string.h>
 
-#define SECONDS_PER_DAY 86400
-#define SECONDS_PER_WEEK (7 * SECONDS_PER_DAY)
-#define SECONDS_PER_MONTH (30 * SECONDS_PER_DAY)
-#define DAY_START_OFFSET (HABIT_APP_DAY_START_HOUR * 3600)
+#include "clock_service.h"
+
 #define COUNT_CONFIRM_SECONDS 2
 #define TIME_CONFIRM_SECONDS 4
 #define MIN_TIMER_MINUTES 1
@@ -90,45 +88,80 @@ static bool valid_habit_config(const habit_config_t *habit)
     return true;
 }
 
-static int64_t floor_div_i64(int64_t value, int64_t divisor)
-{
-    int64_t quotient = value / divisor;
-    int64_t remainder = value % divisor;
-    if (remainder != 0 && ((remainder < 0) != (divisor < 0))) {
-        quotient--;
-    }
-    return quotient;
-}
-
 int64_t habit_app_period_day(int64_t timestamp_seconds)
 {
-    return floor_div_i64(timestamp_seconds - DAY_START_OFFSET, SECONDS_PER_DAY);
+    clock_calendar_periods_t periods = {0};
+    return clock_service_calendar_periods(timestamp_seconds, &periods) ? periods.day_id : INT64_MIN;
 }
 
 int64_t habit_app_period_week(int64_t timestamp_seconds)
 {
-    return floor_div_i64(timestamp_seconds - DAY_START_OFFSET, SECONDS_PER_WEEK);
+    clock_calendar_periods_t periods = {0};
+    return clock_service_calendar_periods(timestamp_seconds, &periods) ? periods.week_id : INT64_MIN;
 }
 
 int64_t habit_app_period_month(int64_t timestamp_seconds)
 {
-    return floor_div_i64(timestamp_seconds - DAY_START_OFFSET, SECONDS_PER_MONTH);
+    clock_calendar_periods_t periods = {0};
+    return clock_service_calendar_periods(timestamp_seconds, &periods) ? periods.month_id : INT64_MIN;
 }
 
-static void append_log(habit_app_t *app, habit_log_t log)
+static bool append_log(habit_app_t *app, habit_log_t log)
 {
+    if (app->log_count == HABIT_APP_MAX_LOGS &&
+        !app->logs[0].synced && !app->logs[0].deleted) return false;
+    if (log.id == 0) log.id = app->next_log_id++;
     if (app->log_count < HABIT_APP_MAX_LOGS) {
         app->logs[app->log_count] = log;
         app->last_log_index = (int)app->log_count;
         app->log_count++;
         app->logs_dirty = true;
-        return;
+        return true;
     }
 
-    memmove(&app->logs[0], &app->logs[1], sizeof(app->logs[0]) * (HABIT_APP_MAX_LOGS - 1));
+    const habit_log_t *evicted = &app->logs[0];
+    if (!evicted->deleted && clock_service_utc_is_valid(evicted->timestamp_start)) {
+        clock_calendar_periods_t periods;
+        clock_service_calendar_periods(evicted->timestamp_start, &periods);
+        int64_t day = periods.day_id;
+        uint32_t value = evicted->type == HABIT_TYPE_COUNT ? evicted->count_value : evicted->duration_seconds;
+        size_t index = app->daily_count;
+        for (size_t i = 0; i < app->daily_count; ++i) {
+            if (app->daily[i].day_id == day && app->daily[i].habit_id == evicted->habit_id &&
+                app->daily[i].type == evicted->type) { index = i; break; }
+        }
+        if (index == app->daily_count && app->daily_count == HABIT_APP_MAX_DAILY_SUMMARIES) {
+            int32_t oldest = app->daily[0].day_id;
+            for (size_t i = 1; i < app->daily_count; ++i) if (app->daily[i].day_id < oldest) oldest = app->daily[i].day_id;
+            size_t write = 0;
+            for (size_t i = 0; i < app->daily_count; ++i) if (app->daily[i].day_id != oldest) app->daily[write++] = app->daily[i];
+            app->daily_count = write; index = write;
+        }
+        if (index == app->daily_count) {
+            app->daily[index] = (habit_daily_summary_t){
+                .day_id=(int32_t)day, .week_id=(int32_t)periods.week_id,
+                .month_id=(int32_t)periods.month_id, .habit_id=evicted->habit_id, .type=evicted->type};
+            app->daily_count++;
+        }
+        app->daily[index].value += value;
+        if (evicted->id > app->daily[index].through_log_id) app->daily[index].through_log_id = evicted->id;
+        app->daily_dirty = true;
+    }
+
+    memmove(&app->logs[0],
+            &app->logs[1],
+            sizeof(app->logs[0]) * (HABIT_APP_MAX_LOGS - 1));
     app->logs[HABIT_APP_MAX_LOGS - 1] = log;
     app->last_log_index = HABIT_APP_MAX_LOGS - 1;
     app->logs_dirty = true;
+    return true;
+}
+
+static void show_log_full_error(habit_app_t *app, habit_screen_id_t return_screen)
+{
+    app->screen = HABIT_SCREEN_ERROR;
+    app->error_return_screen = return_screen;
+    mark_dirty(app);
 }
 
 static bool log_matches_time_view(const habit_log_t *log)
@@ -184,70 +217,22 @@ static const habit_log_t *time_log_at_view_index(const habit_app_t *app, size_t 
     return NULL;
 }
 
-static uint8_t next_habit_id(const habit_app_t *app)
-{
-    uint8_t next = 0;
-    for (size_t i = 0; i < app->habit_count; ++i) {
-        if (app->habits[i].id >= next) {
-            next = app->habits[i].id + 1;
-        }
-    }
-    return next;
-}
-
-static void cycle_selected_habit_kind(habit_app_t *app)
-{
-    habit_config_t *habit = selected_habit(app);
-    if (habit->type == HABIT_TYPE_COUNT) {
-        habit->type = HABIT_TYPE_TIME;
-        habit->time_mode = HABIT_TIME_TIMER;
-        habit->default_minutes = 10;
-    } else if (habit->time_mode == HABIT_TIME_TIMER) {
-        habit->time_mode = HABIT_TIME_STOPWATCH;
-        habit->default_minutes = 1;
-    } else {
-        habit->type = HABIT_TYPE_COUNT;
-        habit->time_mode = HABIT_TIME_STOPWATCH;
-        habit->default_minutes = 1;
-    }
-    app->habits_dirty = true;
-    mark_dirty(app);
-}
-
-static void add_default_habit(habit_app_t *app)
-{
-    if (app->habit_count >= HABIT_APP_MAX_HABITS) {
-        return;
-    }
-
-    uint8_t id = next_habit_id(app);
-    habit_config_t habit = {
-        .id = id,
-        .label = {'H', (char)('0' + (id % 10)), '\0', '\0'},
-        .type = HABIT_TYPE_COUNT,
-        .time_mode = HABIT_TIME_STOPWATCH,
-        .default_minutes = 1,
-    };
-    app->habits[app->habit_count] = habit;
-    app->selected = app->habit_count;
-    app->habit_count++;
-    app->habits_dirty = true;
-    mark_dirty(app);
-}
-
 static void log_count_event(habit_app_t *app, int64_t now_seconds)
 {
     const habit_config_t *habit = selected_habit_const(app);
-    append_log(app, (habit_log_t) {
+    if (!append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_COUNT,
-        .timestamp_start = now_seconds,
-        .timestamp_end = now_seconds,
+        .timestamp_start = app->clock_synced ? app->utc_now : 0,
+        .timestamp_end = app->clock_synced ? app->utc_now : 0,
         .duration_seconds = 0,
         .count_value = 1,
         .synced = false,
         .deleted = false,
-    });
+    })) {
+        show_log_full_error(app, HABIT_SCREEN_SELECT);
+        return;
+    }
 
     app->screen = HABIT_SCREEN_CONFIRM;
     app->confirm_until = now_seconds + COUNT_CONFIRM_SECONDS;
@@ -275,6 +260,8 @@ static void start_time_session(habit_app_t *app, int64_t now_seconds)
     app->session_paused_at = 0;
     app->session_paused_total = 0;
     app->timer_seconds = habit->time_mode == HABIT_TIME_TIMER ? app->setup_minutes * 60 : 0;
+    app->session_start_utc = app->clock_synced ? app->utc_now : 0;
+    app->session_start_utc_valid = app->clock_synced;
     app->timer_completed = false;
     app->screen = HABIT_SCREEN_SESSION;
     app->session_dirty = true;
@@ -290,21 +277,30 @@ static void save_time_session(habit_app_t *app, int64_t now_seconds, bool comple
 
     const habit_config_t *habit = selected_habit_const(app);
     uint32_t duration = elapsed_session_seconds(app, now_seconds);
-    int64_t timestamp_end = now_seconds;
+    int64_t timestamp_end = app->clock_synced ? app->utc_now : 0;
     if (habit->time_mode == HABIT_TIME_TIMER && duration >= app->timer_seconds) {
         duration = app->timer_seconds;
-        timestamp_end = app->session_start + app->session_paused_total + duration;
+        if (app->clock_synced) {
+            timestamp_end = app->utc_now - (elapsed_session_seconds(app, now_seconds) - duration);
+        }
     }
-    append_log(app, (habit_log_t) {
+    if (!append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_TIME,
-        .timestamp_start = app->session_start,
+        .timestamp_start = app->session_start_utc_valid ? app->session_start_utc :
+                           app->clock_synced ? timestamp_end - duration : 0,
         .timestamp_end = timestamp_end,
         .duration_seconds = duration,
         .count_value = 0,
         .synced = false,
         .deleted = false,
-    });
+    })) {
+        app->session_paused = true;
+        app->session_paused_at = now_seconds;
+        app->session_dirty = true;
+        show_log_full_error(app, HABIT_SCREEN_SESSION);
+        return;
+    }
 
     app->session_active = false;
     app->session_paused = false;
@@ -332,6 +328,7 @@ static void undo_last_log(habit_app_t *app)
 {
     if (app->last_log_index >= 0 && (size_t)app->last_log_index < app->log_count) {
         app->logs[app->last_log_index].deleted = true;
+        app->logs[app->last_log_index].synced = false;
         app->logs_dirty = true;
     }
     app->screen = HABIT_SCREEN_SELECT;
@@ -405,8 +402,23 @@ void habit_app_init(habit_app_t *app)
     app->screen = HABIT_SCREEN_SELECT;
     app->stat_view = HABIT_STAT_WEEK_TOTAL;
     app->last_log_index = -1;
+    app->next_log_id = 1;
     app->last_session_tick_second = -1;
     app->cached_screen.dirty = true;
+}
+
+void habit_app_update_clock(habit_app_t *app, int64_t utc_seconds, bool synced)
+{
+    if (app == NULL) {
+        return;
+    }
+    app->clock_synced = synced && clock_service_utc_is_valid(utc_seconds);
+    app->utc_now = app->clock_synced ? utc_seconds : 0;
+}
+
+bool habit_app_clock_is_synced(const habit_app_t *app)
+{
+    return app != NULL && app->clock_synced;
 }
 
 static bool apply_habits(habit_app_t *app, const habit_config_t *habits, size_t habit_count, bool mark_config_dirty)
@@ -445,6 +457,7 @@ static bool apply_habits(habit_app_t *app, const habit_config_t *habits, size_t 
 
 bool habit_app_set_habits(habit_app_t *app, const habit_config_t *habits, size_t habit_count)
 {
+    if (app && app->session_active) return false;
     return apply_habits(app, habits, habit_count, true);
 }
 
@@ -511,10 +524,6 @@ void habit_app_handle_button(habit_app_t *app,
                 next_habit(app, -1);
             } else if (button == HABIT_BUTTON_RIGHT) {
                 next_habit(app, 1);
-            } else if (button == HABIT_BUTTON_OK && press == HABIT_PRESS_LONG) {
-                add_default_habit(app);
-            } else if (button == HABIT_BUTTON_OK) {
-                cycle_selected_habit_kind(app);
             }
         } else if (app->home_mode == HABIT_HOME_LOGS) {
             size_t logs = time_log_count(app);
@@ -556,7 +565,10 @@ void habit_app_handle_button(habit_app_t *app,
         break;
 
     case HABIT_SCREEN_TIMER_SETUP:
-        if (button == HABIT_BUTTON_LEFT && app->setup_minutes > MIN_TIMER_MINUTES) {
+        if (button == HABIT_BUTTON_LEFT && press == HABIT_PRESS_LONG) {
+            app->screen = HABIT_SCREEN_SELECT;
+            mark_dirty(app);
+        } else if (button == HABIT_BUTTON_LEFT && app->setup_minutes > MIN_TIMER_MINUTES) {
             app->setup_minutes--;
             mark_dirty(app);
         } else if (button == HABIT_BUTTON_RIGHT && app->setup_minutes < MAX_TIMER_MINUTES) {
@@ -612,6 +624,13 @@ void habit_app_handle_button(habit_app_t *app,
         }
         break;
 
+    case HABIT_SCREEN_ERROR:
+        if (button == HABIT_BUTTON_OK || button == HABIT_BUTTON_LEFT) {
+            app->screen = app->error_return_screen;
+            mark_dirty(app);
+        }
+        break;
+
     case HABIT_SCREEN_CONFIRM:
         break;
     }
@@ -636,6 +655,27 @@ bool habit_app_take_habits_dirty(habit_app_t *app)
     bool dirty = app->habits_dirty;
     app->habits_dirty = false;
     return dirty;
+}
+
+bool habit_app_take_daily_dirty(habit_app_t *app)
+{
+    bool dirty = app->daily_dirty; app->daily_dirty = false; return dirty;
+}
+
+void habit_app_load_daily(habit_app_t *app, const habit_daily_summary_t *daily, size_t count)
+{
+    if (!app || (!daily && count)) return;
+    if (count > HABIT_APP_MAX_DAILY_SUMMARIES) count = HABIT_APP_MAX_DAILY_SUMMARIES;
+    if (count) memcpy(app->daily, daily, count * sizeof(*daily));
+    app->daily_count = count; app->daily_dirty = false;
+}
+
+size_t habit_app_copy_daily(const habit_app_t *app, habit_daily_summary_t *out, size_t max_count)
+{
+    if (!app) return 0;
+    if (!out || max_count == 0) return app->daily_count;
+    size_t count = app->daily_count < max_count ? app->daily_count : max_count;
+    memcpy(out, app->daily, count * sizeof(*out)); return count;
 }
 
 size_t habit_app_copy_habits(const habit_app_t *app, habit_config_t *out, size_t max_habits)
@@ -663,6 +703,15 @@ void habit_app_load_logs(habit_app_t *app, const habit_log_t *logs, size_t log_c
 
     memcpy(app->logs, logs, sizeof(app->logs[0]) * log_count);
     app->log_count = log_count;
+    app->next_log_id = 1;
+    for (size_t i = 0; i < app->log_count; ++i) {
+        if (app->logs[i].id == 0) {
+            app->logs[i].id = app->next_log_id;
+        }
+        if (app->logs[i].id >= app->next_log_id) {
+            app->next_log_id = app->logs[i].id + 1;
+        }
+    }
     app->last_log_index = -1;
     for (size_t i = app->log_count; i > 0; --i) {
         if (!app->logs[i - 1].deleted) {
@@ -694,6 +743,23 @@ bool habit_app_get_log(const habit_app_t *app, size_t index, habit_log_t *out)
     return true;
 }
 
+bool habit_app_mark_log_synced(habit_app_t *app, uint64_t log_id)
+{
+    if (app == NULL || log_id == 0) {
+        return false;
+    }
+    for (size_t i = 0; i < app->log_count; ++i) {
+        if (app->logs[i].id == log_id && !app->logs[i].deleted) {
+            if (!app->logs[i].synced) {
+                app->logs[i].synced = true;
+                app->logs_dirty = true;
+            }
+            return true;
+        }
+    }
+    return false;
+}
+
 int habit_app_last_log_index(const habit_app_t *app)
 {
     return app->last_log_index;
@@ -721,6 +787,8 @@ bool habit_app_export_session(const habit_app_t *app, habit_session_snapshot_t *
         .session_paused_total = app->session_paused_total,
         .timer_seconds = app->timer_seconds,
         .setup_minutes = app->setup_minutes,
+        .session_start_utc = app->session_start_utc,
+        .session_start_utc_valid = app->session_start_utc_valid,
     };
     return true;
 }
@@ -747,6 +815,8 @@ void habit_app_restore_session(habit_app_t *app,
     app->session_paused_total = session->session_paused_total;
     app->timer_seconds = session->timer_seconds;
     app->setup_minutes = session->setup_minutes;
+    app->session_start_utc = session->session_start_utc;
+    app->session_start_utc_valid = session->session_start_utc_valid;
     app->screen = HABIT_SCREEN_SESSION;
     app->last_session_tick_second = now_seconds;
     if (!app->session_paused && app->session_start > now_seconds) {
@@ -760,6 +830,9 @@ uint32_t habit_app_stat_total(const habit_app_t *app,
                               habit_stat_view_t stat_view,
                               int64_t now_seconds)
 {
+    if (!clock_service_utc_is_valid(now_seconds)) {
+        return 0;
+    }
     int64_t current;
     int64_t previous;
     bool use_month = false;
@@ -777,12 +850,38 @@ uint32_t habit_app_stat_total(const habit_app_t *app,
     uint32_t prev_total = 0;
     uint32_t active_days = 0;
     int64_t seen_days[7] = {0};
+    const habit_config_t *configured = habit_by_id(app, habit_id);
+    if (!configured) return 0;
+
+    for (size_t i = 0; i < app->daily_count; ++i) {
+        const habit_daily_summary_t *summary = &app->daily[i];
+        if (summary->habit_id != habit_id || summary->type != configured->type) continue;
+        int64_t period = use_month ? summary->month_id : summary->week_id;
+        if (period == current) {
+            total += summary->value;
+            if (stat_view == HABIT_STAT_WEEK_AVG) {
+                bool seen = false;
+                for (uint32_t d = 0; d < active_days; ++d) seen = seen || seen_days[d] == summary->day_id;
+                if (!seen && active_days < 7) seen_days[active_days++] = summary->day_id;
+            }
+        } else if (period == previous) prev_total += summary->value;
+    }
 
     for (size_t i = 0; i < app->log_count; ++i) {
         const habit_log_t *log = &app->logs[i];
-        if (log->deleted || log->habit_id != habit_id) {
+        if (log->deleted || log->habit_id != habit_id || log->type != configured->type) {
             continue;
         }
+        if (!clock_service_utc_is_valid(log->timestamp_start)) continue;
+
+        bool summarized = false;
+        int64_t log_day = habit_app_period_day(log->timestamp_start);
+        for (size_t d = 0; d < app->daily_count; ++d) {
+            const habit_daily_summary_t *summary = &app->daily[d];
+            if (summary->habit_id == log->habit_id && summary->type == log->type &&
+                summary->day_id == log_day && log->id <= summary->through_log_id) { summarized = true; break; }
+        }
+        if (summarized) continue;
 
         int64_t period = use_month ? habit_app_period_month(log->timestamp_start) :
                          habit_app_period_week(log->timestamp_start);
@@ -864,11 +963,29 @@ static uint32_t total_for_period(const habit_app_t *app,
                                  bool use_month)
 {
     uint32_t total = 0;
+    const habit_config_t *configured = habit_by_id(app, habit_id);
+    if (!configured) return 0;
+    for (size_t i = 0; i < app->daily_count; ++i) {
+        const habit_daily_summary_t *summary = &app->daily[i];
+        if (summary->habit_id != habit_id || summary->type != configured->type) continue;
+        int64_t summary_period = use_month ? summary->month_id : summary->week_id;
+        if (summary_period == period) total += summary->value;
+    }
     for (size_t i = 0; i < app->log_count; ++i) {
         const habit_log_t *log = &app->logs[i];
-        if (log->deleted || log->habit_id != habit_id) {
+        if (log->deleted || log->habit_id != habit_id || log->type != configured->type) {
             continue;
         }
+        if (!clock_service_utc_is_valid(log->timestamp_start)) continue;
+
+        bool summarized = false;
+        int64_t log_day = habit_app_period_day(log->timestamp_start);
+        for (size_t d = 0; d < app->daily_count; ++d) {
+            const habit_daily_summary_t *summary = &app->daily[d];
+            if (summary->habit_id == log->habit_id && summary->type == log->type &&
+                summary->day_id == log_day && log->id <= summary->through_log_id) { summarized = true; break; }
+        }
+        if (summarized) continue;
 
         int64_t log_period = use_month ? habit_app_period_month(log->timestamp_start) :
                              habit_app_period_week(log->timestamp_start);
@@ -883,6 +1000,9 @@ int32_t habit_app_stat_week_delta(const habit_app_t *app,
                                   uint8_t habit_id,
                                   int64_t now_seconds)
 {
+    if (!clock_service_utc_is_valid(now_seconds)) {
+        return 0;
+    }
     int64_t current = habit_app_period_week(now_seconds);
     uint32_t total = total_for_period(app, habit_id, current, false);
     uint32_t previous = total_for_period(app, habit_id, current - 1, false);
@@ -908,7 +1028,7 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         screen->right_action = HABIT_UI_ICON_RIGHT;
         if (app->home_mode == HABIT_HOME_HABITS) {
             screen->icon = HABIT_UI_ICON_HABITS;
-            screen->ok_action = HABIT_UI_ICON_EDIT;
+            screen->ok_action = HABIT_UI_ICON_NONE;
             snprintf(screen->header, sizeof(screen->header), "HABITS");
             snprintf(screen->primary, sizeof(screen->primary), "%s", habit->label);
             if (habit->type == HABIT_TYPE_TIME && habit->time_mode == HABIT_TIME_TIMER) {
@@ -1001,7 +1121,7 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         break;
 
     case HABIT_SCREEN_STATS: {
-        uint32_t total = habit_app_stat_total(app, habit->id, app->stat_view, now_seconds);
+        uint32_t total = habit_app_stat_total(app, habit->id, app->stat_view, app->utc_now);
         const char *heading = "THIS WEEK";
         if (app->stat_view == HABIT_STAT_WEEK_DELTA) {
             heading = "VS LAST WEEK";
@@ -1018,8 +1138,13 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         snprintf(screen->secondary, sizeof(screen->secondary), "%s %s",
                  habit->label,
                  habit->type == HABIT_TYPE_COUNT ? "COUNT" : "TIME");
+        if (!app->clock_synced) {
+            snprintf(screen->primary, sizeof(screen->primary), "--");
+            snprintf(screen->secondary, sizeof(screen->secondary), "NO CLOCK");
+            break;
+        }
         if (app->stat_view == HABIT_STAT_WEEK_DELTA) {
-            int32_t delta = habit_app_stat_week_delta(app, habit->id, now_seconds);
+            int32_t delta = habit_app_stat_week_delta(app, habit->id, app->utc_now);
             char sign = delta >= 0 ? '+' : '-';
             uint32_t absolute = delta >= 0 ? (uint32_t)delta : (uint32_t)-delta;
             if (habit->type == HABIT_TYPE_TIME) {
@@ -1038,6 +1163,14 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         }
         break;
     }
+
+    case HABIT_SCREEN_ERROR:
+        screen->icon = HABIT_UI_ICON_CLOSE;
+        screen->ok_action = HABIT_UI_ICON_BACK;
+        snprintf(screen->header, sizeof(screen->header), "STORAGE");
+        snprintf(screen->primary, sizeof(screen->primary), "LOG FULL");
+        snprintf(screen->secondary, sizeof(screen->secondary), "SYNC NEEDED");
+        break;
     }
 
     screen->dirty = false;

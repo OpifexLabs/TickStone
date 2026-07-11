@@ -1,315 +1,331 @@
 #include "habit_storage.h"
-#include "habit_storage_plan.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "esp_check.h"
+#include "habit_codec.h"
+#include "habit_ring.h"
+#include "habit_legacy.h"
 #include "nvs.h"
 #include "nvs_flash.h"
 
-#define STORAGE_NAMESPACE "tickstone"
-#define STORAGE_OLD_LOGS_KEY "logs"
-#define STORAGE_HABITS_KEY "habits"
-#define STORAGE_META_KEY "logmeta"
-#define STORAGE_SESSION_KEY "session"
-#define STORAGE_LOG_KEY_PREFIX "log"
-#define STORAGE_LOGS_VERSION 2
-#define STORAGE_HABITS_VERSION 1
-#define STORAGE_OLD_LOGS_VERSION 1
-#define STORAGE_SESSION_VERSION 1
+#define NS "tickstone"
+#define CFG3 "cfg3"
+#define SES3 "ses3"
+#define LOG_VERSION_KEY "lv"
+#define LOG_COUNT_KEY "lc"
+#define LOG_OLDEST_KEY "lo"
+#define LOG_NEWEST_KEY "ln"
+#define LOG_PREFIX "e"
+#define LOG_VERSION 3
+#define OLD_CFG "habits"
+#define OLD_META "logmeta"
+#define OLD_SESSION "session"
+#define OLD_LOG_PREFIX "log"
+#define DAILY_PREFIX "d"
 
 static const char *TAG = "habit_storage";
 
-typedef struct {
-    uint32_t version;
-    uint32_t count;
-    habit_log_t logs[HABIT_APP_MAX_LOGS];
-} old_logs_blob_t;
 
-typedef struct {
-    uint32_t version;
-    uint32_t count;
-} logs_meta_t;
+static habit_config_t s_habits[HABIT_APP_MAX_HABITS];
 
-typedef struct {
-    uint32_t version;
-    uint32_t count;
-    habit_config_t habits[HABIT_APP_MAX_HABITS];
-} habits_blob_t;
+static esp_err_t open_rw(nvs_handle_t *h) { return nvs_open(NS, NVS_READWRITE, h); }
 
-typedef struct {
-    uint32_t version;
-    habit_session_snapshot_t session;
-} session_blob_t;
-
-static old_logs_blob_t s_old_logs_blob;
-static habits_blob_t s_habits_blob;
-static habit_log_t s_log_buffer[HABIT_APP_MAX_LOGS];
-static session_blob_t s_session_blob;
-static size_t s_saved_log_count;
-
-static void log_key(size_t index, char *out, size_t out_size)
+static void log_key(uint64_t id, char *out, size_t size)
 {
-    snprintf(out, out_size, STORAGE_LOG_KEY_PREFIX "%03u", (unsigned)index);
+    snprintf(out, size, LOG_PREFIX "%03u", (unsigned)(id % HABIT_APP_MAX_LOGS));
+}
+
+static void slot_key(size_t slot, char *out, size_t size)
+{
+    snprintf(out, size, LOG_PREFIX "%03u", (unsigned)slot);
+}
+
+static void old_log_key(size_t index, char *out, size_t size)
+{
+    snprintf(out, size, OLD_LOG_PREFIX "%03u", (unsigned)index);
+}
+
+static size_t daily_slot(const habit_daily_summary_t *summary)
+{
+    uint32_t day = (uint32_t)summary->day_id;
+    return (day % 70u) * HABIT_APP_MAX_HABITS + summary->habit_id;
+}
+
+static void daily_key(size_t slot, char *out, size_t size)
+{
+    snprintf(out, size, DAILY_PREFIX "%03u", (unsigned)slot);
 }
 
 esp_err_t habit_storage_init(void)
 {
     esp_err_t err = nvs_flash_init();
     if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
-        ESP_RETURN_ON_ERROR(nvs_flash_erase(), TAG, "erase nvs failed");
-        err = nvs_flash_init();
+        ESP_LOGE(TAG, "NVS recovery required; user data will not be erased automatically");
     }
     return err;
-}
-
-static esp_err_t open_rw(nvs_handle_t *handle)
-{
-    return nvs_open(STORAGE_NAMESPACE, NVS_READWRITE, handle);
 }
 
 esp_err_t habit_storage_erase_all(void)
 {
-    nvs_handle_t handle = 0;
-    ESP_RETURN_ON_ERROR(open_rw(&handle), TAG, "open nvs for erase failed");
-    esp_err_t err = nvs_erase_all(handle);
+    nvs_handle_t h = 0;
+    ESP_RETURN_ON_ERROR(open_rw(&h), TAG, "open erase failed");
+    esp_err_t err = nvs_erase_all(h);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h);
     if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-    if (err == ESP_OK) {
-        s_saved_log_count = 0;
-        memset(&s_habits_blob, 0, sizeof(s_habits_blob));
-        memset(&s_session_blob, 0, sizeof(s_session_blob));
-        memset(s_log_buffer, 0, sizeof(s_log_buffer));
     }
     return err;
 }
 
-static esp_err_t load_habits(nvs_handle_t handle, habit_app_t *app)
+static esp_err_t load_cfg3(nvs_handle_t h, habit_app_t *app)
 {
-    memset(&s_habits_blob, 0, sizeof(s_habits_blob));
-    size_t habits_size = sizeof(s_habits_blob);
-    esp_err_t err = nvs_get_blob(handle, STORAGE_HABITS_KEY, &s_habits_blob, &habits_size);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_OK;
-    }
-    ESP_RETURN_ON_ERROR(err, TAG, "read habits failed");
-
-    if (s_habits_blob.version != STORAGE_HABITS_VERSION ||
-        s_habits_blob.count == 0 ||
-        s_habits_blob.count > HABIT_APP_MAX_HABITS ||
-        !habit_app_load_habits(app, s_habits_blob.habits, s_habits_blob.count)) {
-        return ESP_ERR_INVALID_VERSION;
-    }
+    uint8_t data[HABIT_CODEC_HABITS_MAX_SIZE] = {0};
+    size_t size = sizeof(data), count = 0;
+    esp_err_t err = nvs_get_blob(h, CFG3, data, &size);
+    if (err != ESP_OK) return err;
+    if (!habit_codec_decode_habits(data, size, s_habits, HABIT_APP_MAX_HABITS, &count) ||
+        !habit_app_load_habits(app, s_habits, count)) return ESP_ERR_INVALID_CRC;
     return ESP_OK;
 }
 
-static esp_err_t write_meta(nvs_handle_t handle, size_t count)
+static esp_err_t load_old_cfg(nvs_handle_t h, habit_app_t *app)
 {
-    const logs_meta_t meta = {
-        .version = STORAGE_LOGS_VERSION,
-        .count = count,
-    };
-    return nvs_set_blob(handle, STORAGE_META_KEY, &meta, sizeof(meta));
+    habit_legacy_config_t blob = {0};
+    size_t size = sizeof(blob);
+    esp_err_t err = nvs_get_blob(h, OLD_CFG, &blob, &size);
+    if (err != ESP_OK) return err;
+    if (size != sizeof(blob) || blob.version != 1 || blob.count == 0 ||
+        blob.count > HABIT_APP_MAX_HABITS ||
+        !habit_app_load_habits(app, blob.habits, blob.count)) return ESP_ERR_INVALID_VERSION;
+    return ESP_OK;
 }
 
-static esp_err_t write_log_at(nvs_handle_t handle, size_t index, const habit_log_t *log)
+static esp_err_t recover_logs3(nvs_handle_t h, habit_app_t *app)
 {
-    char key[8];
-    log_key(index, key, sizeof(key));
-    return nvs_set_blob(handle, key, log, sizeof(*log));
+    habit_log_t *logs = calloc(HABIT_APP_MAX_LOGS, sizeof(*logs));
+    if (!logs) return ESP_ERR_NO_MEM;
+    size_t found = 0;
+    for (size_t slot = 0; slot < HABIT_APP_MAX_LOGS; ++slot) {
+        char key[8]; slot_key(slot, key, sizeof(key));
+        uint8_t data[HABIT_CODEC_LOG_SIZE]; size_t size = sizeof(data);
+        if (nvs_get_blob(h, key, data, &size) != ESP_OK) continue;
+        habit_log_t log;
+        if (!habit_codec_decode_log(data, size, &log) || log.id == 0 ||
+            log.id % HABIT_APP_MAX_LOGS != slot) continue;
+        logs[found++] = log;
+    }
+    if (!found) { free(logs); return ESP_ERR_NVS_NOT_FOUND; }
+    size_t best_count = habit_ring_select_contiguous(logs, found);
+    habit_app_load_logs(app, logs, best_count);
+    esp_err_t err = nvs_set_u8(h, LOG_VERSION_KEY, LOG_VERSION);
+    if (err == ESP_OK) err = nvs_set_u16(h, LOG_COUNT_KEY, (uint16_t)best_count);
+    if (err == ESP_OK) err = nvs_set_u64(h, LOG_OLDEST_KEY, logs[0].id);
+    if (err == ESP_OK) err = nvs_set_u64(h, LOG_NEWEST_KEY, logs[best_count - 1].id);
+    free(logs);
+    ESP_RETURN_ON_ERROR(err, TAG, "repair metadata failed");
+    ESP_LOGW(TAG, "Recovered %u logs from ring slots", (unsigned)best_count);
+    return nvs_commit(h);
 }
 
-static esp_err_t load_v2_logs(nvs_handle_t handle, habit_app_t *app)
+static esp_err_t load_logs3(nvs_handle_t h, habit_app_t *app)
 {
-    logs_meta_t meta = {0};
+    uint8_t version = 0;
+    uint16_t count = 0;
+    uint64_t oldest = 0, newest = 0;
+    esp_err_t err = nvs_get_u8(h, LOG_VERSION_KEY, &version);
+    if (err == ESP_ERR_NVS_NOT_FOUND) return recover_logs3(h, app);
+    if (err != ESP_OK || nvs_get_u16(h, LOG_COUNT_KEY, &count) != ESP_OK ||
+        nvs_get_u64(h, LOG_OLDEST_KEY, &oldest) != ESP_OK ||
+        nvs_get_u64(h, LOG_NEWEST_KEY, &newest) != ESP_OK) return recover_logs3(h, app);
+    if (version != LOG_VERSION || count > HABIT_APP_MAX_LOGS ||
+        (count && (!oldest || newest < oldest || newest - oldest + 1 != count))) {
+        return recover_logs3(h, app);
+    }
+    habit_log_t *logs = calloc(count ? count : 1, sizeof(*logs));
+    if (!logs) return ESP_ERR_NO_MEM;
+    for (size_t i = 0; i < count; ++i) {
+        uint64_t id = oldest + i;
+        char key[8]; log_key(id, key, sizeof(key));
+        uint8_t data[HABIT_CODEC_LOG_SIZE] = {0};
+        size_t size = sizeof(data);
+        if (nvs_get_blob(h, key, data, &size) != ESP_OK ||
+            !habit_codec_decode_log(data, size, &logs[i]) || logs[i].id != id) {
+            free(logs); return recover_logs3(h, app);
+        }
+    }
+    habit_app_load_logs(app, logs, count); free(logs);
+    return ESP_OK;
+}
+
+static esp_err_t load_old_logs(nvs_handle_t h, habit_app_t *app)
+{
+    habit_legacy_meta_t meta = {0};
     size_t meta_size = sizeof(meta);
-    esp_err_t err = nvs_get_blob(handle, STORAGE_META_KEY, &meta, &meta_size);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        return ESP_ERR_NVS_NOT_FOUND;
-    }
-    ESP_RETURN_ON_ERROR(err, TAG, "read log meta failed");
-
-    if (meta.version != STORAGE_LOGS_VERSION || meta.count > HABIT_APP_MAX_LOGS) {
+    esp_err_t err = nvs_get_blob(h, OLD_META, &meta, &meta_size);
+    if (err != ESP_OK) return err;
+    if (meta_size != sizeof(meta) || meta.version != 2 || meta.count > 128) {
         return ESP_ERR_INVALID_VERSION;
     }
-
-    memset(s_log_buffer, 0, sizeof(s_log_buffer));
+    habit_log_t *logs = calloc(meta.count ? meta.count : 1, sizeof(*logs));
+    if (!logs) return ESP_ERR_NO_MEM;
     for (size_t i = 0; i < meta.count; ++i) {
-        char key[8];
-        log_key(i, key, sizeof(key));
-        size_t log_size = sizeof(s_log_buffer[i]);
-        err = nvs_get_blob(handle, key, &s_log_buffer[i], &log_size);
-        ESP_RETURN_ON_ERROR(err, TAG, "read log entry failed");
+        char key[8]; old_log_key(i, key, sizeof(key));
+        habit_legacy_log_t old = {0}; size_t size = sizeof(old);
+        err = nvs_get_blob(h, key, &old, &size);
+        if (err != ESP_OK || size != sizeof(old)) { free(logs); return err == ESP_OK ? ESP_ERR_INVALID_SIZE : err; }
+        if (!habit_legacy_convert_log(&old, i + 1, &logs[i])) { free(logs); return ESP_ERR_INVALID_VERSION; }
     }
-
-    habit_app_load_logs(app, s_log_buffer, meta.count);
-    s_saved_log_count = meta.count;
+    habit_app_load_logs(app, logs, meta.count); free(logs);
     return ESP_OK;
 }
 
-static esp_err_t migrate_old_logs(nvs_handle_t handle, habit_app_t *app)
+static esp_err_t load_session3(nvs_handle_t h, habit_app_t *app, int64_t now)
 {
-    memset(&s_old_logs_blob, 0, sizeof(s_old_logs_blob));
-    size_t old_size = sizeof(s_old_logs_blob);
-    esp_err_t err = nvs_get_blob(handle, STORAGE_OLD_LOGS_KEY, &s_old_logs_blob, &old_size);
-    if (err == ESP_ERR_NVS_NOT_FOUND) {
-        s_saved_log_count = 0;
-        return ESP_OK;
-    }
-    ESP_RETURN_ON_ERROR(err, TAG, "read old logs failed");
-
-    if (s_old_logs_blob.version != STORAGE_OLD_LOGS_VERSION) {
-        return ESP_ERR_INVALID_VERSION;
-    }
-
-    if (s_old_logs_blob.count > HABIT_APP_MAX_LOGS) {
-        s_old_logs_blob.count = HABIT_APP_MAX_LOGS;
-    }
-
-    for (size_t i = 0; i < s_old_logs_blob.count; ++i) {
-        ESP_RETURN_ON_ERROR(write_log_at(handle, i, &s_old_logs_blob.logs[i]), TAG, "migrate log failed");
-    }
-    ESP_RETURN_ON_ERROR(write_meta(handle, s_old_logs_blob.count), TAG, "write migrated meta failed");
-    err = nvs_erase_key(handle, STORAGE_OLD_LOGS_KEY);
-    if (err != ESP_ERR_NVS_NOT_FOUND) {
-        ESP_RETURN_ON_ERROR(err, TAG, "erase old logs failed");
-    }
-    ESP_RETURN_ON_ERROR(nvs_commit(handle), TAG, "commit migrated logs failed");
-
-    habit_app_load_logs(app, s_old_logs_blob.logs, s_old_logs_blob.count);
-    s_saved_log_count = s_old_logs_blob.count;
+    uint8_t data[HABIT_CODEC_SESSION_SIZE] = {0}; size_t size = sizeof(data);
+    esp_err_t err = nvs_get_blob(h, SES3, data, &size);
+    if (err != ESP_OK) return err;
+    habit_session_snapshot_t session = {0};
+    if (!habit_codec_decode_session(data, size, &session)) return ESP_ERR_INVALID_CRC;
+    habit_app_restore_session(app, &session, now);
     return ESP_OK;
 }
 
-esp_err_t habit_storage_load(habit_app_t *app, int64_t now_seconds)
+static esp_err_t load_old_session(nvs_handle_t h, habit_app_t *app, int64_t now)
 {
-    nvs_handle_t handle = 0;
-    ESP_RETURN_ON_ERROR(open_rw(&handle), TAG, "open nvs failed");
+    habit_legacy_session_blob_t blob = {0}; size_t size = sizeof(blob);
+    esp_err_t err = nvs_get_blob(h, OLD_SESSION, &blob, &size);
+    if (err != ESP_OK) return err;
+    habit_session_snapshot_t s;
+    if (size != sizeof(blob) || !habit_legacy_convert_session(&blob, &s)) return ESP_ERR_INVALID_VERSION;
+    habit_app_restore_session(app, &s, now);
+    return ESP_OK;
+}
 
-    esp_err_t err = load_habits(handle, app);
-    if (err != ESP_OK) {
-        nvs_close(handle);
-        return err;
+static esp_err_t load_daily(nvs_handle_t h, habit_app_t *app)
+{
+    habit_daily_summary_t *daily = calloc(HABIT_APP_MAX_DAILY_SUMMARIES, sizeof(*daily));
+    if (!daily) return ESP_ERR_NO_MEM;
+    size_t count = 0;
+    for (size_t slot = 0; slot < HABIT_APP_MAX_DAILY_SUMMARIES; ++slot) {
+        char key[8]; daily_key(slot, key, sizeof(key));
+        uint8_t data[HABIT_CODEC_DAILY_SIZE]; size_t size = sizeof(data);
+        habit_daily_summary_t summary;
+        if (nvs_get_blob(h, key, data, &size) != ESP_OK || !habit_codec_decode_daily(data, size, &summary) ||
+            daily_slot(&summary) != slot) continue;
+        daily[count++] = summary;
     }
+    habit_app_load_daily(app, daily, count); free(daily); return ESP_OK;
+}
 
-    err = load_v2_logs(handle, app);
+esp_err_t habit_storage_load(habit_app_t *app, int64_t now)
+{
+    nvs_handle_t h = 0;
+    ESP_RETURN_ON_ERROR(open_rw(&h), TAG, "open load failed");
+    bool migrate_cfg = false, migrate_logs = false, migrate_session = false;
+    esp_err_t err = load_cfg3(h, app);
     if (err == ESP_ERR_NVS_NOT_FOUND) {
-        err = migrate_old_logs(handle, app);
+        err = load_old_cfg(h, app); migrate_cfg = err == ESP_OK;
+        if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
     }
-    if (err != ESP_OK) {
-        nvs_close(handle);
-        return err;
+    if (err == ESP_OK) {
+        err = load_logs3(h, app);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = load_old_logs(h, app); migrate_logs = err == ESP_OK;
+            if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+        }
     }
-
-    memset(&s_session_blob, 0, sizeof(s_session_blob));
-    size_t session_size = sizeof(s_session_blob);
-    err = nvs_get_blob(handle, STORAGE_SESSION_KEY, &s_session_blob, &session_size);
-    if (err == ESP_OK && s_session_blob.version == STORAGE_SESSION_VERSION) {
-        habit_app_restore_session(app, &s_session_blob.session, now_seconds);
-    } else if (err != ESP_ERR_NVS_NOT_FOUND) {
-        nvs_close(handle);
-        return err;
+    if (err == ESP_OK) err = load_daily(h, app);
+    if (err == ESP_OK) {
+        err = load_session3(h, app, now);
+        if (err == ESP_ERR_NVS_NOT_FOUND) {
+            err = load_old_session(h, app, now); migrate_session = err == ESP_OK;
+            if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
+        }
     }
-
-    nvs_close(handle);
+    nvs_close(h);
+    ESP_RETURN_ON_ERROR(err, TAG, "repository data invalid");
+    if (migrate_cfg) ESP_RETURN_ON_ERROR(habit_storage_save_habits(app), TAG, "migrate cfg failed");
+    if (migrate_logs) ESP_RETURN_ON_ERROR(habit_storage_save_logs(app), TAG, "migrate logs failed");
+    if (migrate_session) ESP_RETURN_ON_ERROR(habit_storage_save_session(app), TAG, "migrate session failed");
     return ESP_OK;
 }
 
 esp_err_t habit_storage_save_habits(const habit_app_t *app)
 {
-    size_t count = habit_app_copy_habits(app, NULL, 0);
-    if (count == 0 || count > HABIT_APP_MAX_HABITS) {
-        return ESP_ERR_INVALID_ARG;
-    }
-
-    memset(&s_habits_blob, 0, sizeof(s_habits_blob));
-    s_habits_blob.version = STORAGE_HABITS_VERSION;
-    s_habits_blob.count = count;
-    habit_app_copy_habits(app, s_habits_blob.habits, HABIT_APP_MAX_HABITS);
-
-    nvs_handle_t handle = 0;
-    ESP_RETURN_ON_ERROR(open_rw(&handle), TAG, "open nvs for habits failed");
-    esp_err_t err = nvs_set_blob(handle, STORAGE_HABITS_KEY, &s_habits_blob, sizeof(s_habits_blob));
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-    return err;
+    size_t count = habit_app_copy_habits(app, s_habits, HABIT_APP_MAX_HABITS);
+    uint8_t data[HABIT_CODEC_HABITS_MAX_SIZE] = {0}; size_t size = 0;
+    if (!habit_codec_encode_habits(s_habits, count, data, sizeof(data), &size)) return ESP_ERR_INVALID_ARG;
+    nvs_handle_t h = 0; ESP_RETURN_ON_ERROR(open_rw(&h), TAG, "open cfg failed");
+    esp_err_t err = nvs_set_blob(h, CFG3, data, size);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h); return err;
 }
 
 esp_err_t habit_storage_save_logs(const habit_app_t *app)
 {
-    const size_t count = habit_app_copy_logs(app, NULL, 0);
-    habit_storage_log_plan_t plan = habit_storage_plan_logs(s_saved_log_count,
-                                                            count,
-                                                            HABIT_APP_MAX_LOGS,
-                                                            habit_app_last_log_index(app));
-    nvs_handle_t handle = 0;
-    ESP_RETURN_ON_ERROR(open_rw(&handle), TAG, "open nvs for logs failed");
-
+    size_t count = habit_app_copy_logs(app, NULL, 0);
+    nvs_handle_t h = 0; ESP_RETURN_ON_ERROR(open_rw(&h), TAG, "open logs failed");
     esp_err_t err = ESP_OK;
-    if (plan.mode == HABIT_STORAGE_LOG_WRITE_APPEND) {
-        habit_log_t log = {0};
-        if (habit_app_get_log(app, plan.append_index, &log)) {
-            err = write_log_at(handle, plan.append_index, &log);
-        }
-    } else if (plan.mode == HABIT_STORAGE_LOG_WRITE_FULL) {
-        for (size_t i = 0; i < count && err == ESP_OK; ++i) {
-            habit_log_t log = {0};
-            if (habit_app_get_log(app, i, &log)) {
-                err = write_log_at(handle, i, &log);
-            }
-        }
+    for (size_t i = 0; i < count && err == ESP_OK; ++i) {
+        habit_log_t log;
+        if (!habit_app_get_log(app, i, &log)) { err = ESP_ERR_INVALID_STATE; break; }
+        uint8_t data[HABIT_CODEC_LOG_SIZE] = {0};
+        if (!habit_codec_encode_log(&log, data, sizeof(data))) { err = ESP_ERR_INVALID_ARG; break; }
+        char key[8]; log_key(log.id, key, sizeof(key));
+        uint8_t existing[HABIT_CODEC_LOG_SIZE]; size_t existing_size = sizeof(existing);
+        if (nvs_get_blob(h, key, existing, &existing_size) == ESP_OK &&
+            existing_size == sizeof(existing) && !memcmp(existing, data, sizeof(data))) continue;
+        err = nvs_set_blob(h, key, data, sizeof(data));
     }
+    if (err == ESP_OK) err = nvs_set_u8(h, LOG_VERSION_KEY, LOG_VERSION);
+    if (err == ESP_OK) err = nvs_set_u16(h, LOG_COUNT_KEY, (uint16_t)count);
+    habit_log_t first = {0}, last = {0};
+    if (count) { habit_app_get_log(app, 0, &first); habit_app_get_log(app, count - 1, &last); }
+    uint64_t oldest = first.id, newest = last.id;
+    if (err == ESP_OK) err = nvs_set_u64(h, LOG_OLDEST_KEY, oldest);
+    if (err == ESP_OK) err = nvs_set_u64(h, LOG_NEWEST_KEY, newest);
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h); return err;
+}
 
-    if (err == ESP_OK && plan.rewrite_latest) {
-        habit_log_t log = {0};
-        if (habit_app_get_log(app, plan.latest_index, &log)) {
-            err = write_log_at(handle, plan.latest_index, &log);
-        }
+esp_err_t habit_storage_save_daily(const habit_app_t *app)
+{
+    size_t count = habit_app_copy_daily(app, NULL, 0);
+    habit_daily_summary_t *daily = calloc(count ? count : 1, sizeof(*daily));
+    if (!daily) return ESP_ERR_NO_MEM;
+    habit_app_copy_daily(app, daily, count);
+    nvs_handle_t h = 0; esp_err_t err = open_rw(&h);
+    if (err != ESP_OK) { free(daily); return err; }
+    err = ESP_OK;
+    for (size_t i = 0; i < count && err == ESP_OK; ++i) {
+        size_t slot = daily_slot(&daily[i]);
+        uint8_t data[HABIT_CODEC_DAILY_SIZE];
+        if (!habit_codec_encode_daily(&daily[i], data, sizeof(data))) { err = ESP_ERR_INVALID_ARG; break; }
+        char key[8]; daily_key(slot, key, sizeof(key));
+        uint8_t existing[HABIT_CODEC_DAILY_SIZE]; size_t existing_size = sizeof(existing);
+        if (nvs_get_blob(h, key, existing, &existing_size) == ESP_OK &&
+            existing_size == sizeof(existing) && !memcmp(existing, data, sizeof(data))) continue;
+        err = nvs_set_blob(h, key, data, sizeof(data));
     }
-
-    if (err == ESP_OK && plan.write_meta) {
-        err = write_meta(handle, count);
-    }
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    if (err == ESP_OK) {
-        s_saved_log_count = count;
-    }
-    nvs_close(handle);
-    return err;
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h); free(daily); return err;
 }
 
 esp_err_t habit_storage_save_session(const habit_app_t *app)
 {
-    habit_session_snapshot_t session = {0};
-    bool active = habit_app_export_session(app, &session);
-
-    nvs_handle_t handle = 0;
-    ESP_RETURN_ON_ERROR(open_rw(&handle), TAG, "open nvs for session failed");
-
-    esp_err_t err;
+    habit_session_snapshot_t session = {0}; bool active = habit_app_export_session(app, &session);
+    nvs_handle_t h = 0; ESP_RETURN_ON_ERROR(open_rw(&h), TAG, "open session failed");
+    esp_err_t err = ESP_OK;
     if (active) {
-        s_session_blob = (session_blob_t) {
-            .version = STORAGE_SESSION_VERSION,
-            .session = session,
-        };
-        err = nvs_set_blob(handle, STORAGE_SESSION_KEY, &s_session_blob, sizeof(s_session_blob));
+        uint8_t data[HABIT_CODEC_SESSION_SIZE] = {0};
+        if (!habit_codec_encode_session(&session, data, sizeof(data))) { nvs_close(h); return ESP_ERR_INVALID_ARG; }
+        err = nvs_set_blob(h, SES3, data, sizeof(data));
     } else {
-        err = nvs_erase_key(handle, STORAGE_SESSION_KEY);
-        if (err == ESP_ERR_NVS_NOT_FOUND) {
-            err = ESP_OK;
-        }
+        err = nvs_erase_key(h, SES3); if (err == ESP_ERR_NVS_NOT_FOUND) err = ESP_OK;
     }
-
-    if (err == ESP_OK) {
-        err = nvs_commit(handle);
-    }
-    nvs_close(handle);
-    return err;
+    if (err == ESP_OK) err = nvs_commit(h);
+    nvs_close(h); return err;
 }

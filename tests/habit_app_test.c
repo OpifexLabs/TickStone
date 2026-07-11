@@ -1,4 +1,5 @@
 #include "habit_app.h"
+#include "clock_service.h"
 
 #include <assert.h>
 #include <stdio.h>
@@ -16,9 +17,7 @@ static void long_press(habit_app_t *app, habit_button_t button, int64_t now)
 
 static void test_day_boundary(void)
 {
-    assert(habit_app_period_day(4 * 3600 + 59 * 60) == -1);
-    assert(habit_app_period_day(5 * 3600) == 0);
-    assert(habit_app_period_day(29 * 3600) == 1);
+    assert(habit_app_period_day(1711854000) == habit_app_period_day(1711853940) + 1);
 }
 
 static void test_count_and_undo(void)
@@ -32,8 +31,10 @@ static void test_count_and_undo(void)
     assert(app.logs[0].count_value == 1);
     assert(!app.logs[0].synced);
 
+    app.logs[0].synced = true;
     long_press(&app, HABIT_BUTTON_OK, 101);
     assert(app.logs[0].deleted);
+    assert(!app.logs[0].synced);
 }
 
 static void test_navigation_wraps_between_habits(void)
@@ -67,18 +68,11 @@ static void test_home_modes_habits_and_logs(void)
     assert(strcmp(screen->primary, "STR") == 0);
     assert(strcmp(screen->secondary, "COUNT") == 0);
     assert(screen->icon == HABIT_UI_ICON_HABITS);
-    assert(screen->ok_action == HABIT_UI_ICON_EDIT);
-
+    assert(screen->ok_action == HABIT_UI_ICON_NONE);
+    habit_config_t unchanged = app.habits[app.selected];
     press(&app, HABIT_BUTTON_OK, 101);
-    assert(app.habits[app.selected].type == HABIT_TYPE_TIME);
-    assert(app.habits[app.selected].time_mode == HABIT_TIME_TIMER);
-    screen = habit_app_screen(&app, 101);
-    assert(strcmp(screen->secondary, "TIMER 10 MIN") == 0);
-
-    size_t before_add = app.habit_count;
     long_press(&app, HABIT_BUTTON_OK, 102);
-    assert(app.habit_count == before_add + 1);
-    assert(strcmp(app.habits[app.selected].label, "H3") == 0);
+    assert(memcmp(&unchanged, &app.habits[app.selected], sizeof(unchanged)) == 0);
 
     long_press(&app, HABIT_BUTTON_RIGHT, 103);
     assert(app.home_mode == HABIT_HOME_ACTION);
@@ -195,6 +189,26 @@ static void test_timer_flow(void)
     assert(app.logs[0].duration_seconds == 16);
 }
 
+static void test_timer_setup_has_back_path(void)
+{
+    habit_app_t app; habit_app_init(&app);
+    press(&app, HABIT_BUTTON_RIGHT, 10);
+    press(&app, HABIT_BUTTON_OK, 11);
+    assert(app.screen == HABIT_SCREEN_TIMER_SETUP);
+    long_press(&app, HABIT_BUTTON_LEFT, 12);
+    assert(app.screen == HABIT_SCREEN_SELECT && !app.session_active);
+}
+
+static void test_active_session_rejects_configuration_change(void)
+{
+    habit_app_t app; habit_app_init(&app);
+    press(&app, HABIT_BUTTON_RIGHT, 10); press(&app, HABIT_BUTTON_OK, 11); press(&app, HABIT_BUTTON_OK, 12);
+    assert(app.session_active);
+    habit_config_t replacement = {.id=0, .label="NEW", .type=HABIT_TYPE_COUNT, .default_minutes=1};
+    assert(!habit_app_set_habits(&app, &replacement, 1));
+    assert(app.session_active && strcmp(app.habits[app.selected].label, "MED") == 0);
+}
+
 static void test_timer_cancel(void)
 {
     habit_app_t app;
@@ -302,13 +316,15 @@ static void test_timer_finishes_and_logs_exact_duration(void)
     press(&app, HABIT_BUTTON_OK, 101);
     assert(app.screen == HABIT_SCREEN_SESSION);
 
+    const int64_t base_utc = 1704110400;
+    habit_app_update_clock(&app, base_utc + 62, true);
     habit_app_tick(&app, 162);
     assert(!app.session_active);
     assert(app.screen == HABIT_SCREEN_CONFIRM);
     assert(app.timer_completed);
     assert(app.log_count == 1);
     assert(app.logs[0].duration_seconds == 60);
-    assert(app.logs[0].timestamp_end == 161);
+    assert(app.logs[0].timestamp_end == base_utc + 61);
     assert(habit_app_completion_sequence(&app) == 1);
 
     const habit_screen_t *screen = habit_app_screen(&app, 162);
@@ -326,11 +342,15 @@ static void test_stats(void)
     habit_app_t app;
     habit_app_init(&app);
 
-    press(&app, HABIT_BUTTON_OK, 5 * 3600);
-    press(&app, HABIT_BUTTON_OK, 6 * 3600);
-    assert(habit_app_stat_total(&app, 0, HABIT_STAT_WEEK_TOTAL, 7 * 3600) == 2);
-    assert(habit_app_stat_total(&app, 0, HABIT_STAT_WEEK_AVG, 7 * 3600) == 2);
-    assert(habit_app_stat_week_delta(&app, 0, 7 * 3600) == 2);
+    const int64_t current_week = 1704715200;
+    habit_app_update_clock(&app, current_week, true);
+    press(&app, HABIT_BUTTON_OK, 100);
+    habit_app_tick(&app, 103);
+    habit_app_update_clock(&app, current_week + 3600, true);
+    press(&app, HABIT_BUTTON_OK, 104);
+    assert(habit_app_stat_total(&app, 0, HABIT_STAT_WEEK_TOTAL, current_week + 7200) == 2);
+    assert(habit_app_stat_total(&app, 0, HABIT_STAT_WEEK_AVG, current_week + 7200) == 2);
+    assert(habit_app_stat_week_delta(&app, 0, current_week + 7200) == 2);
 }
 
 static void test_stats_navigation_and_signed_delta_screen(void)
@@ -338,24 +358,30 @@ static void test_stats_navigation_and_signed_delta_screen(void)
     habit_app_t app;
     habit_app_init(&app);
 
-    press(&app, HABIT_BUTTON_OK, -7 * 24 * 3600 + 5 * 3600);
-    habit_app_tick(&app, -7 * 24 * 3600 + 5 * 3600 + 3);
-    press(&app, HABIT_BUTTON_OK, 5 * 3600);
-    press(&app, HABIT_BUTTON_OK, 6 * 3600);
-    habit_app_tick(&app, 7 * 3600);
-    long_press(&app, HABIT_BUTTON_OK, 7 * 3600);
+    const int64_t previous_week = 1704110400;
+    const int64_t current_week = 1704715200;
+    habit_app_update_clock(&app, previous_week, true);
+    press(&app, HABIT_BUTTON_OK, 100);
+    habit_app_tick(&app, 103);
+    habit_app_update_clock(&app, current_week, true);
+    press(&app, HABIT_BUTTON_OK, 200);
+    habit_app_tick(&app, 203);
+    habit_app_update_clock(&app, current_week + 3600, true);
+    press(&app, HABIT_BUTTON_OK, 204);
+    habit_app_tick(&app, 207);
+    long_press(&app, HABIT_BUTTON_OK, 208);
     assert(app.screen == HABIT_SCREEN_STATS);
-    press(&app, HABIT_BUTTON_RIGHT, 7 * 3600 + 1);
+    press(&app, HABIT_BUTTON_RIGHT, 209);
     assert(app.stat_view == HABIT_STAT_WEEK_DELTA);
 
-    const habit_screen_t *screen = habit_app_screen(&app, 7 * 3600 + 1);
+    const habit_screen_t *screen = habit_app_screen(&app, 209);
     assert(strcmp(screen->header, "VS LAST WEEK") == 0);
     assert(strcmp(screen->secondary, "STR COUNT") == 0);
     assert(strcmp(screen->primary, "+1") == 0);
 
-    press(&app, HABIT_BUTTON_LEFT, 7 * 3600 + 2);
+    press(&app, HABIT_BUTTON_LEFT, 210);
     assert(app.stat_view == HABIT_STAT_WEEK_TOTAL);
-    press(&app, HABIT_BUTTON_OK, 7 * 3600 + 3);
+    press(&app, HABIT_BUTTON_OK, 211);
     assert(app.screen == HABIT_SCREEN_SELECT);
 }
 
@@ -384,8 +410,49 @@ static void test_session_restore(void)
     assert(restored.logs[0].duration_seconds == 38);
 }
 
+static void test_full_log_queue_never_overwrites_unsynced_data(void)
+{
+    habit_log_t logs[HABIT_APP_MAX_LOGS] = {0};
+    for (size_t i = 0; i < HABIT_APP_MAX_LOGS; ++i) {
+        logs[i] = (habit_log_t){.id = i + 1, .habit_id = 0, .type = HABIT_TYPE_COUNT, .count_value = 1};
+    }
+    habit_app_t app;
+    habit_app_init(&app);
+    habit_app_load_logs(&app, logs, HABIT_APP_MAX_LOGS);
+    press(&app, HABIT_BUTTON_OK, 100);
+    assert(app.log_count == HABIT_APP_MAX_LOGS);
+    assert(app.logs[0].id == 1);
+    assert(app.screen == HABIT_SCREEN_ERROR);
+
+    app.screen = HABIT_SCREEN_SELECT;
+    app.logs[0].synced = true;
+    press(&app, HABIT_BUTTON_OK, 101);
+    assert(app.log_count == HABIT_APP_MAX_LOGS);
+    assert(app.logs[0].id == 2);
+    assert(app.logs[HABIT_APP_MAX_LOGS - 1].id == HABIT_APP_MAX_LOGS + 1);
+}
+
+static void test_synced_rollover_preserves_calendar_history(void)
+{
+    const int64_t now = 1711965600;
+    habit_log_t logs[HABIT_APP_MAX_LOGS] = {0};
+    for (size_t i = 0; i < HABIT_APP_MAX_LOGS; ++i) {
+        logs[i] = (habit_log_t){.id=i + 1, .habit_id=0, .type=HABIT_TYPE_COUNT,
+            .timestamp_start=now, .timestamp_end=now, .count_value=1, .synced=true};
+    }
+    habit_app_t app; habit_app_init(&app); habit_app_load_logs(&app, logs, HABIT_APP_MAX_LOGS);
+    habit_app_update_clock(&app, now, true); press(&app, HABIT_BUTTON_OK, 100);
+    assert(app.daily_count == 1 && app.daily[0].value == 1 && habit_app_take_daily_dirty(&app));
+    assert(habit_app_stat_total(&app, 0, HABIT_STAT_WEEK_TOTAL, now) == HABIT_APP_MAX_LOGS + 1);
+    habit_daily_summary_t saved[HABIT_APP_MAX_DAILY_SUMMARIES];
+    size_t count = habit_app_copy_daily(&app, saved, HABIT_APP_MAX_DAILY_SUMMARIES);
+    habit_app_t restored; habit_app_init(&restored); habit_app_load_daily(&restored, saved, count);
+    assert(restored.daily_count == 1 && restored.daily[0].value == 1 && !habit_app_take_daily_dirty(&restored));
+}
+
 int main(void)
 {
+    clock_service_init();
     test_day_boundary();
     test_count_and_undo();
     test_navigation_wraps_between_habits();
@@ -393,6 +460,8 @@ int main(void)
     test_log_home_shows_time_logs();
     test_set_ten_habits_and_validate_labels();
     test_timer_flow();
+    test_timer_setup_has_back_path();
+    test_active_session_rejects_configuration_change();
     test_timer_cancel();
     test_session_cancel_confirmation_and_visible_save();
     test_stopwatch_cancel_and_save();
@@ -402,6 +471,8 @@ int main(void)
     test_stats();
     test_stats_navigation_and_signed_delta_screen();
     test_session_restore();
+    test_full_log_queue_never_overwrites_unsynced_data();
+    test_synced_rollover_preserves_calendar_history();
     puts("habit_app_test: OK");
     return 0;
 }

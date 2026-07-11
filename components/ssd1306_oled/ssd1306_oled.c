@@ -5,6 +5,7 @@
 #include "driver/i2c.h"
 #include "esp_check.h"
 #include "esp_err.h"
+#include "oled_frame.h"
 
 #define OLED_I2C_PORT I2C_NUM_0
 #define OLED_I2C_FREQ_HZ 100000
@@ -17,6 +18,7 @@
 
 static uint8_t s_address = OLED_DEFAULT_ADDRESS;
 static bool s_driver_installed;
+static oled_frame_t s_frame;
 
 static const uint8_t s_font_5x7[][5] = {
     [' '] = {0x00, 0x00, 0x00, 0x00, 0x00},
@@ -192,7 +194,9 @@ esp_err_t ssd1306_oled_init(const ssd1306_oled_config_t *config)
         ESP_RETURN_ON_ERROR(command(init_commands[i]), OLED_LOG_TAG, "init command failed");
     }
 
-    return ssd1306_oled_clear();
+    oled_frame_init(&s_frame);
+    ESP_RETURN_ON_ERROR(ssd1306_oled_clear(), OLED_LOG_TAG, "initial clear failed");
+    return ssd1306_oled_present();
 }
 
 esp_err_t ssd1306_oled_set_contrast(uint8_t contrast)
@@ -208,15 +212,21 @@ esp_err_t ssd1306_oled_set_enabled(bool enabled)
 
 esp_err_t ssd1306_oled_clear(void)
 {
-    uint8_t empty[OLED_WIDTH] = {0};
+    oled_frame_clear(&s_frame);
+    return ESP_OK;
+}
 
+esp_err_t ssd1306_oled_present(void)
+{
     for (uint8_t page = 0; page < OLED_PAGES; ++page) {
+        const uint8_t *data = oled_frame_page_const(&s_frame, page);
+        if (!oled_frame_page_changed(&s_frame, page)) continue;
         ESP_RETURN_ON_ERROR(set_cursor(0, page), OLED_LOG_TAG, "clear cursor failed");
-        ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, empty, sizeof(empty)),
+        ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, data, OLED_WIDTH),
                             OLED_LOG_TAG,
-                            "clear page failed");
+                            "frame page failed");
+        oled_frame_page_presented(&s_frame, page);
     }
-
     return ESP_OK;
 }
 
@@ -225,8 +235,6 @@ esp_err_t ssd1306_oled_draw_text(uint8_t x, uint8_t page, const char *text)
     if (text == NULL) {
         return ESP_ERR_INVALID_ARG;
     }
-
-    ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "text cursor failed");
 
     while (*text != '\0' && x < OLED_WIDTH) {
         const unsigned char c = (unsigned char)*text++;
@@ -246,9 +254,8 @@ esp_err_t ssd1306_oled_draw_text(uint8_t x, uint8_t page, const char *text)
             0x00,
         };
 
-        ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, columns, sizeof(columns)),
-                            OLED_LOG_TAG,
-                            "draw glyph failed");
+        size_t write_len = x + sizeof(columns) <= OLED_WIDTH ? sizeof(columns) : OLED_WIDTH - x;
+        memcpy(oled_frame_page(&s_frame, page) + x, columns, write_len);
         x += sizeof(columns);
     }
 
@@ -296,14 +303,8 @@ esp_err_t ssd1306_oled_draw_text_2x(uint8_t x, uint8_t page, const char *text)
                                   sizeof(scaled[0]) :
                                   (OLED_WIDTH - x);
 
-        ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "2x top cursor failed");
-        ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[0], write_len),
-                            OLED_LOG_TAG,
-                            "draw 2x top failed");
-        ESP_RETURN_ON_ERROR(set_cursor(x, page + 1), OLED_LOG_TAG, "2x bottom cursor failed");
-        ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[1], write_len),
-                            OLED_LOG_TAG,
-                            "draw 2x bottom failed");
+        memcpy(oled_frame_page(&s_frame, page) + x, scaled[0], write_len);
+        memcpy(oled_frame_page(&s_frame, page + 1) + x, scaled[1], write_len);
 
         x += sizeof(scaled[0]);
     }
@@ -326,8 +327,8 @@ esp_err_t ssd1306_oled_draw_bitmap_8x8(uint8_t x, uint8_t page, const uint8_t ro
         }
     }
 
-    ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "bitmap cursor failed");
-    return write_bytes(OLED_CONTROL_DATA, columns, sizeof(columns));
+    memcpy(oled_frame_page(&s_frame, page) + x, columns, sizeof(columns));
+    return ESP_OK;
 }
 
 esp_err_t ssd1306_oled_draw_bitmap_8x8_2x(uint8_t x, uint8_t page, const uint8_t rows[8])
@@ -352,13 +353,7 @@ esp_err_t ssd1306_oled_draw_bitmap_8x8_2x(uint8_t x, uint8_t page, const uint8_t
         }
     }
 
-    ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "bitmap top cursor failed");
-    ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[0], sizeof(scaled[0])),
-                        OLED_LOG_TAG,
-                        "draw bitmap top failed");
-    ESP_RETURN_ON_ERROR(set_cursor(x, page + 1), OLED_LOG_TAG, "bitmap bottom cursor failed");
-    ESP_RETURN_ON_ERROR(write_bytes(OLED_CONTROL_DATA, scaled[1], sizeof(scaled[1])),
-                        OLED_LOG_TAG,
-                        "draw bitmap bottom failed");
+    memcpy(oled_frame_page(&s_frame, page) + x, scaled[0], sizeof(scaled[0]));
+    memcpy(oled_frame_page(&s_frame, page + 1) + x, scaled[1], sizeof(scaled[1]));
     return ESP_OK;
 }

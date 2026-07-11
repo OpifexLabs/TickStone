@@ -271,6 +271,8 @@ def compile_flow_probe():
             "-Wextra",
             "-Icomponents/habit_app/include",
             "components/habit_app/habit_app.c",
+            "components/clock_service/clock_service.c",
+            "-Icomponents/clock_service/include",
             str(c_path),
             "-o",
             str(exe_path),

@@ -3,6 +3,8 @@
 #include <string.h>
 
 #include "esp_timer.h"
+#include "esp_check.h"
+#include "freertos/task.h"
 
 #define BUTTONS_MAX_COUNT 16
 
@@ -19,6 +21,14 @@ static button_state_t s_buttons[BUTTONS_MAX_COUNT];
 static size_t s_button_count;
 static uint32_t s_debounce_ms;
 static uint32_t s_long_press_ms;
+static TaskHandle_t s_owner_task;
+
+static void IRAM_ATTR edge_isr(void *argument)
+{
+    BaseType_t wake = pdFALSE;
+    if (s_owner_task) vTaskNotifyGiveFromISR(s_owner_task, &wake);
+    if (wake) portYIELD_FROM_ISR();
+}
 
 static int64_t now_ms(void)
 {
@@ -38,13 +48,14 @@ esp_err_t buttons_init(const gpio_num_t *pins,
     s_button_count = button_count;
     s_debounce_ms = debounce_ms;
     s_long_press_ms = long_press_ms;
+    s_owner_task = xTaskGetCurrentTaskHandle();
 
     gpio_config_t io_conf = {
         .pin_bit_mask = 0,
         .mode = GPIO_MODE_INPUT,
         .pull_up_en = GPIO_PULLUP_ENABLE,
         .pull_down_en = GPIO_PULLDOWN_DISABLE,
-        .intr_type = GPIO_INTR_DISABLE,
+        .intr_type = GPIO_INTR_ANYEDGE,
     };
 
     for (size_t i = 0; i < button_count; ++i) {
@@ -55,7 +66,13 @@ esp_err_t buttons_init(const gpio_num_t *pins,
         s_buttons[i].last_raw_change_ms = now_ms();
     }
 
-    return gpio_config(&io_conf);
+    ESP_RETURN_ON_ERROR(gpio_config(&io_conf), "buttons", "gpio config failed");
+    esp_err_t err = gpio_install_isr_service(0);
+    if (err != ESP_OK && err != ESP_ERR_INVALID_STATE) return err;
+    for (size_t i = 0; i < button_count; ++i) {
+        ESP_RETURN_ON_ERROR(gpio_isr_handler_add(pins[i], edge_isr, NULL), "buttons", "isr add failed");
+    }
+    return ESP_OK;
 }
 
 bool buttons_poll(button_event_t *event)
@@ -111,4 +128,9 @@ bool buttons_active(void)
         }
     }
     return false;
+}
+
+void buttons_wait(TickType_t timeout)
+{
+    ulTaskNotifyTake(pdTRUE, timeout);
 }

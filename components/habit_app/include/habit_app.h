@@ -10,8 +10,8 @@ extern "C" {
 
 #define HABIT_APP_MAX_HABITS 10
 #define HABIT_APP_LABEL_LEN 3
-#define HABIT_APP_MAX_LOGS 128
-#define HABIT_APP_DAY_START_HOUR 5
+#define HABIT_APP_MAX_LOGS 512
+#define HABIT_APP_MAX_DAILY_SUMMARIES 700
 
 typedef enum {
     HABIT_TYPE_COUNT = 0,
@@ -41,6 +41,7 @@ typedef enum {
     HABIT_SCREEN_SESSION,
     HABIT_SCREEN_CANCEL_CONFIRM,
     HABIT_SCREEN_STATS,
+    HABIT_SCREEN_ERROR,
 } habit_screen_id_t;
 
 typedef enum {
@@ -90,6 +91,7 @@ typedef struct {
 } habit_config_t;
 
 typedef struct {
+    uint64_t id;
     uint8_t habit_id;
     habit_type_t type;
     int64_t timestamp_start;
@@ -99,6 +101,16 @@ typedef struct {
     bool synced;
     bool deleted;
 } habit_log_t;
+
+typedef struct {
+    int32_t day_id;
+    int32_t week_id;
+    int32_t month_id;
+    uint8_t habit_id;
+    habit_type_t type;
+    uint32_t value;
+    uint64_t through_log_id;
+} habit_daily_summary_t;
 
 typedef struct {
     habit_screen_id_t id;
@@ -124,6 +136,8 @@ typedef struct {
     uint32_t session_paused_total;
     uint32_t timer_seconds;
     uint32_t setup_minutes;
+    int64_t session_start_utc;
+    bool session_start_utc_valid;
 } habit_session_snapshot_t;
 
 typedef struct {
@@ -132,11 +146,15 @@ typedef struct {
     habit_log_t logs[HABIT_APP_MAX_LOGS];
     size_t log_count;
     int last_log_index;
+    uint64_t next_log_id;
+    habit_daily_summary_t daily[HABIT_APP_MAX_DAILY_SUMMARIES];
+    size_t daily_count;
 
     size_t selected;
     habit_home_mode_t home_mode;
     size_t log_view_index;
     habit_screen_id_t screen;
+    habit_screen_id_t error_return_screen;
     habit_stat_view_t stat_view;
     int64_t confirm_until;
 
@@ -149,16 +167,23 @@ typedef struct {
     uint32_t setup_minutes;
     uint32_t completion_sequence;
     bool timer_completed;
+    int64_t utc_now;
+    int64_t session_start_utc;
+    bool clock_synced;
+    bool session_start_utc_valid;
 
     bool logs_dirty;
     bool session_dirty;
     bool habits_dirty;
+    bool daily_dirty;
     int64_t last_session_tick_second;
 
     habit_screen_t cached_screen;
 } habit_app_t;
 
 void habit_app_init(habit_app_t *app);
+void habit_app_update_clock(habit_app_t *app, int64_t utc_seconds, bool synced);
+bool habit_app_clock_is_synced(const habit_app_t *app);
 bool habit_app_set_habits(habit_app_t *app, const habit_config_t *habits, size_t habit_count);
 bool habit_app_load_habits(habit_app_t *app, const habit_config_t *habits, size_t habit_count);
 void habit_app_tick(habit_app_t *app, int64_t now_seconds);
@@ -170,10 +195,14 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds);
 bool habit_app_take_logs_dirty(habit_app_t *app);
 bool habit_app_take_session_dirty(habit_app_t *app);
 bool habit_app_take_habits_dirty(habit_app_t *app);
+bool habit_app_take_daily_dirty(habit_app_t *app);
 size_t habit_app_copy_habits(const habit_app_t *app, habit_config_t *out, size_t max_habits);
 void habit_app_load_logs(habit_app_t *app, const habit_log_t *logs, size_t log_count);
 size_t habit_app_copy_logs(const habit_app_t *app, habit_log_t *out, size_t max_logs);
 bool habit_app_get_log(const habit_app_t *app, size_t index, habit_log_t *out);
+bool habit_app_mark_log_synced(habit_app_t *app, uint64_t log_id);
+void habit_app_load_daily(habit_app_t *app, const habit_daily_summary_t *daily, size_t count);
+size_t habit_app_copy_daily(const habit_app_t *app, habit_daily_summary_t *out, size_t max_count);
 int habit_app_last_log_index(const habit_app_t *app);
 uint32_t habit_app_completion_sequence(const habit_app_t *app);
 bool habit_app_export_session(const habit_app_t *app, habit_session_snapshot_t *out);
