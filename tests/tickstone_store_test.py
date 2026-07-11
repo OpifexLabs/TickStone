@@ -17,6 +17,7 @@ from tools.tickstone_store import (  # noqa: E402
     integrity_report,
     open_store,
     record_habits,
+    event_habit_metadata,
     tickstone_day,
 )
 
@@ -72,7 +73,7 @@ class TickStoneStoreTest(unittest.TestCase):
         self.assertEqual(json.loads(row[9]), self.event)
         self.assertEqual(self.rows("SELECT slot_id, active FROM habits"), [(0, 1)])
         self.assertEqual(self.rows("PRAGMA journal_mode")[0][0].lower(), "wal")
-        self.assertEqual(self.rows("SELECT value FROM metadata WHERE key='schema_version'"), [("1",)])
+        self.assertEqual(self.rows("SELECT value FROM metadata WHERE key='schema_version'"), [("2",)])
 
     def test_replayed_event_is_idempotent_and_repairs_database(self):
         ingest_event(self.raw, self.database, self.event)
@@ -162,6 +163,57 @@ class TickStoneStoreTest(unittest.TestCase):
             self.rows("SELECT name FROM habit_snapshot_entries WHERE slot_id=0 ORDER BY snapshot_id"),
             [("MEDITATION",), ("WATER",)],
         )
+
+    def test_event_identity_survives_slot_reuse_and_old_events_are_uncertain(self):
+        first = [{"id": 0, "code": "MED", "name": "MEDITATION", "mode": "time", "minutes": 10}]
+        second = [{"id": 0, "code": "WTR", "name": "WATER", "mode": "count", "minutes": 1}]
+        first_id = record_habits(self.database, first, valid_from=100, device_hash="11111111")
+        old_event = dict(self.event, id=20, started_at=110, ended_at=110)
+        ingest_event(self.raw, self.database, old_event, snapshot_id=first_id)
+        second_id = record_habits(self.database, second, valid_from=200, device_hash="22222222")
+        new_event = dict(self.event, id=21, started_at=210, ended_at=210)
+        ingest_event(self.raw, self.database, new_event, snapshot_id=second_id)
+        imported = dict(self.event, id=22, started_at=50, ended_at=50)
+        ingest_event(self.raw, self.database, imported)
+
+        with open_store(self.database) as connection:
+            self.assertEqual(event_habit_metadata(connection, 20)["name"], "MEDITATION")
+            self.assertEqual(event_habit_metadata(connection, 20)["status"], "exact")
+            self.assertEqual(event_habit_metadata(connection, 21)["name"], "WATER")
+            fallback = event_habit_metadata(connection, 22)
+            self.assertEqual((fallback["name"], fallback["status"]), ("WATER", "fallback"))
+            intervals = connection.execute(
+                "SELECT valid_from, valid_to FROM habit_snapshots ORDER BY id"
+            ).fetchall()
+            self.assertEqual(intervals, [(100, 200), (200, None)])
+
+    def test_inactive_slots_are_preserved_in_snapshot(self):
+        snapshot = record_habits(self.database, [
+            {"id": 0, "code": "STR", "name": "STRACKA", "mode": "count", "minutes": 1, "active": True},
+            {"id": 1, "code": "", "name": "", "mode": "count", "minutes": 1, "active": False},
+        ], valid_from=100)
+        self.assertEqual(
+            self.rows("SELECT slot_id, active FROM habit_snapshot_entries WHERE snapshot_id=? ORDER BY slot_id", (snapshot,)),
+            [(0, 1), (1, 0)],
+        )
+
+    def test_schema_one_database_migrates_without_event_loss(self):
+        with sqlite3.connect(self.database) as connection:
+            connection.executescript("""
+                CREATE TABLE metadata(key TEXT PRIMARY KEY, value TEXT NOT NULL);
+                INSERT INTO metadata VALUES('schema_version','1');
+                CREATE TABLE habit_snapshots(id INTEGER PRIMARY KEY, content_hash TEXT NOT NULL UNIQUE, recorded_at TEXT NOT NULL);
+                CREATE TABLE habit_snapshot_entries(snapshot_id INTEGER NOT NULL, slot_id INTEGER NOT NULL, code TEXT NOT NULL, name TEXT NOT NULL, type TEXT NOT NULL, default_minutes INTEGER NOT NULL, PRIMARY KEY(snapshot_id,slot_id));
+                CREATE TABLE events(id INTEGER PRIMARY KEY, habit_id INTEGER NOT NULL, type TEXT NOT NULL, started_at INTEGER NOT NULL, ended_at INTEGER NOT NULL, duration_seconds INTEGER NOT NULL, count INTEGER NOT NULL, deleted INTEGER NOT NULL, tickstone_day TEXT NOT NULL, ingested_at TEXT NOT NULL, raw_json TEXT NOT NULL);
+                CREATE TABLE habits(slot_id INTEGER PRIMARY KEY, code TEXT, name TEXT, type TEXT, default_minutes INTEGER, active INTEGER NOT NULL, current_snapshot_id INTEGER, updated_at TEXT NOT NULL);
+                INSERT INTO habit_snapshots VALUES(1,'old','2026-07-11T20:00:00Z');
+                INSERT INTO habit_snapshot_entries VALUES(1,0,'MED','MEDITATION','time',10);
+                INSERT INTO events VALUES(7,0,'time',100,110,10,0,0,'1970-01-01','old','{}');
+            """)
+        with open_store(self.database) as connection:
+            self.assertEqual(connection.execute("SELECT value FROM metadata WHERE key='schema_version'").fetchone()[0], "2")
+            self.assertEqual(connection.execute("SELECT id, config_snapshot_id FROM events").fetchall(), [(7, None)])
+            self.assertEqual(connection.execute("SELECT active FROM habit_snapshot_entries").fetchall(), [(1,)])
 
     def test_integrity_reports_invalid_raw_lines_and_database_health(self):
         ingest_event(self.raw, self.database, self.event)

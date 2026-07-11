@@ -19,6 +19,9 @@
 static const char *TAG = "tickstone_ble";
 static SemaphoreHandle_t s_lock;
 static uint8_t s_packet[TICKSTONE_BLE_PACKET_SIZE];
+static habit_config_t s_habits[HABIT_APP_MAX_HABITS];
+static size_t s_habit_count;
+static uint8_t s_config_page;
 static bool s_ack_pending;
 static uint64_t s_ack_id;
 static bool s_time_pending;
@@ -40,6 +43,8 @@ static const ble_uuid128_t s_data_uuid = BLE_UUID128_INIT(
     0x02,0x00,0x00,0x00,0x00,0x00,0x10,0x9e,0x2d,0x4c,0x1b,0x7a,0x00,0x00,0x57,0x7e);
 static const ble_uuid128_t s_control_uuid = BLE_UUID128_INIT(
     0x03,0x00,0x00,0x00,0x00,0x00,0x10,0x9e,0x2d,0x4c,0x1b,0x7a,0x00,0x00,0x57,0x7e);
+static const ble_uuid128_t s_config_uuid = BLE_UUID128_INIT(
+    0x04,0x00,0x00,0x00,0x00,0x00,0x10,0x9e,0x2d,0x4c,0x1b,0x7a,0x00,0x00,0x57,0x7e);
 
 static uint64_t get_u64(const uint8_t *data)
 {
@@ -64,20 +69,35 @@ static int access_control(uint16_t conn_handle, uint16_t attr_handle,
 {
     if (ctxt->op != BLE_GATT_ACCESS_OP_WRITE_CHR) return BLE_ATT_ERR_WRITE_NOT_PERMITTED;
     uint8_t command[9]; uint16_t length = 0;
-    if (ble_hs_mbuf_to_flat(ctxt->om, command, sizeof(command), &length) != 0 || length != 9) {
+    if (ble_hs_mbuf_to_flat(ctxt->om, command, sizeof(command), &length) != 0) {
         return BLE_ATT_ERR_INVALID_ATTR_VALUE_LEN;
     }
-    uint64_t value = get_u64(&command[1]);
     xSemaphoreTake(s_lock, portMAX_DELAY);
-    if (command[0] == 1 && value >= 1704067200ULL) {
+    if (length == 2 && command[0] == 3 && command[1] < TICKSTONE_BLE_CONFIG_PAGE_COUNT) {
+        s_config_page = command[1];
+    } else if (length == 9 && command[0] == 1 && get_u64(&command[1]) >= 1704067200ULL) {
+        uint64_t value = get_u64(&command[1]);
         s_utc_seconds = (int64_t)value; s_time_pending = true;
-    } else if (command[0] == 2 && value != 0) {
+    } else if (length == 9 && command[0] == 2 && get_u64(&command[1]) != 0) {
+        uint64_t value = get_u64(&command[1]);
         s_ack_id = value; s_ack_pending = true;
     } else {
         xSemaphoreGive(s_lock); return BLE_ATT_ERR_UNLIKELY;
     }
     xSemaphoreGive(s_lock);
     return 0;
+}
+
+static int access_config(uint16_t conn_handle, uint16_t attr_handle,
+                         struct ble_gatt_access_ctxt *ctxt, void *arg)
+{
+    if (ctxt->op != BLE_GATT_ACCESS_OP_READ_CHR) return BLE_ATT_ERR_READ_NOT_PERMITTED;
+    uint8_t packet[TICKSTONE_BLE_CONFIG_PACKET_SIZE];
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    bool encoded = tickstone_ble_encode_config_page(s_habits, s_habit_count, s_config_page, packet);
+    int rc = encoded ? os_mbuf_append(ctxt->om, packet, sizeof(packet)) : -1;
+    xSemaphoreGive(s_lock);
+    return rc == 0 ? 0 : BLE_ATT_ERR_UNLIKELY;
 }
 
 static const struct ble_gatt_svc_def s_services[] = {{
@@ -88,6 +108,8 @@ static const struct ble_gatt_svc_def s_services[] = {{
     }, {
         .uuid = &s_control_uuid.u, .access_cb = access_control,
         .flags = BLE_GATT_CHR_F_WRITE | BLE_GATT_CHR_F_WRITE_NO_RSP,
+    }, {
+        .uuid = &s_config_uuid.u, .access_cb = access_config, .flags = BLE_GATT_CHR_F_READ,
     }, {0}},
 }, {0}};
 
@@ -229,6 +251,20 @@ void tickstone_ble_publish_log(const habit_log_t *log)
     if (!tickstone_ble_encode_log(log, packet)) return;
     xSemaphoreTake(s_lock, portMAX_DELAY);
     memcpy(s_packet, packet, sizeof(packet));
+    xSemaphoreGive(s_lock);
+}
+
+void tickstone_ble_publish_habits(const habit_config_t *habits, size_t count)
+{
+    if (!s_lock || !habits || count > HABIT_APP_MAX_HABITS ||
+        tickstone_ble_config_hash(habits, count) == 0) return;
+    xSemaphoreTake(s_lock, portMAX_DELAY);
+    memcpy(s_habits, habits, count * sizeof(*habits));
+    if (count < HABIT_APP_MAX_HABITS) {
+        memset(&s_habits[count], 0, (HABIT_APP_MAX_HABITS - count) * sizeof(*habits));
+    }
+    s_habit_count = count;
+    s_config_page = 0;
     xSemaphoreGive(s_lock);
 }
 
