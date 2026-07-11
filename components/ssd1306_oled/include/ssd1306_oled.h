@@ -23,6 +23,7 @@ esp_err_t ssd1306_oled_set_enabled(bool enabled);
 esp_err_t ssd1306_oled_clear(void);
 esp_err_t ssd1306_oled_draw_text(uint8_t x, uint8_t page, const char *text);
 esp_err_t ssd1306_oled_draw_text_2x(uint8_t x, uint8_t page, const char *text);
+esp_err_t ssd1306_oled_draw_bitmap_8x8(uint8_t x, uint8_t page, const uint8_t rows[8]);
 esp_err_t ssd1306_oled_draw_bitmap_8x8_2x(uint8_t x, uint8_t page, const uint8_t rows[8]);
 
 #ifdef __cplusplus

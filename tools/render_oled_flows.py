@@ -33,7 +33,7 @@ static void show(habit_app_t *app, const char *title, int64_t now)
 {
     habit_app_tick(app, now);
     const habit_screen_t *screen = habit_app_screen(app, now);
-    printf("%s|%d|%d|%d|%d|%d|%d|%d|%s|%s|%s|%s\n",
+    printf("%s|%d|%d|%d|%d|%d|%d|%d|%s|%s|%s\n",
            title,
            (int)screen->id,
            (int)screen->home_mode,
@@ -44,8 +44,7 @@ static void show(habit_app_t *app, const char *title, int64_t now)
            screen->show_home_nav ? 1 : 0,
            screen->header,
            screen->primary,
-           screen->secondary,
-           screen->meta);
+           screen->secondary);
 }
 
 int main(void)
@@ -214,6 +213,16 @@ def draw_icon_2x(pixels, icons, x, page, icon_id):
                 set_px(pixels, tx + 1, ty + 1)
 
 
+def draw_icon_1x(pixels, icons, x, page, icon_id):
+    if icon_id == 0 or icon_id not in icons:
+        return
+    y0 = page * 8
+    for sy, row in enumerate(icons[icon_id]):
+        for sx in range(8):
+            if row & (1 << (7 - sx)):
+                set_px(pixels, x + sx, y0 + sy)
+
+
 def center_x_2x(text):
     width = len(text) * 12
     return 0 if width >= OLED_W else (OLED_W - width) // 2
@@ -227,22 +236,25 @@ def center_x_1x(text):
 def render_screen(font, icons, icon_ids, view):
     image = Image.new("L", (OLED_W, OLED_H), 0)
     pixels = image.load()
+    header_icon = view["icon"]
     if view["show_home_nav"]:
-        nav = [icon_ids["HABIT_UI_ICON_HABITS"], icon_ids["HABIT_UI_ICON_ACTION"], icon_ids["HABIT_UI_ICON_LOGS"]]
-        nav_x = [32, 56, 80]
-        selected = 0 if view["home_mode"] == 1 else 1 if view["home_mode"] == 0 else 2
-        for x, icon_id in zip(nav_x, nav):
-            draw_icon_2x(pixels, icons, x, 0, icon_id)
-        draw_text_1x(pixels, font, nav_x[selected] + 5, 2, "-")
+        header_icon = (
+            icon_ids["HABIT_UI_ICON_HABITS"] if view["home_mode"] == 1
+            else icon_ids["HABIT_UI_ICON_LOGS"] if view["home_mode"] == 2
+            else icon_ids["HABIT_UI_ICON_ACTION"]
+        )
+    header_width = 12 + len(view["header"]) * 6 if header_icon else len(view["header"]) * 6
+    header_x = 0 if header_width >= OLED_W else (OLED_W - header_width) // 2
+    if header_icon:
+        draw_icon_1x(pixels, icons, header_x, 1, header_icon)
+        header_x += 12
+    draw_text_1x(pixels, font, header_x, 1, view["header"])
 
-    draw_text_1x(pixels, font, center_x_1x(view["header"]), 3, view["header"])
-    draw_icon_2x(pixels, icons, 56, 4, view["icon"])
-    draw_text_2x(pixels, font, center_x_2x(view["primary"]), 7, view["primary"])
-    draw_text_1x(pixels, font, center_x_1x(view["secondary"]), 10, view["secondary"])
-    draw_text_1x(pixels, font, center_x_1x(view["meta"]), 11, view["meta"])
-    draw_icon_2x(pixels, icons, 12, 13, view["left_action"])
-    draw_icon_2x(pixels, icons, 56, 13, view["ok_action"])
-    draw_icon_2x(pixels, icons, 100, 13, view["right_action"])
+    draw_text_2x(pixels, font, center_x_2x(view["primary"]), 5, view["primary"])
+    draw_text_1x(pixels, font, center_x_1x(view["secondary"]), 8, view["secondary"])
+    draw_icon_2x(pixels, icons, 12, 12, view["left_action"])
+    draw_icon_2x(pixels, icons, 56, 12, view["ok_action"])
+    draw_icon_2x(pixels, icons, 100, 12, view["right_action"])
     return image
 
 
@@ -287,7 +299,6 @@ def load_flow_rows():
             "header": values[8],
             "primary": values[9],
             "secondary": values[10],
-            "meta": values[11],
         })
     return rows
 

@@ -311,6 +311,25 @@ esp_err_t ssd1306_oled_draw_text_2x(uint8_t x, uint8_t page, const char *text)
     return ESP_OK;
 }
 
+esp_err_t ssd1306_oled_draw_bitmap_8x8(uint8_t x, uint8_t page, const uint8_t rows[8])
+{
+    if (rows == NULL || page >= OLED_PAGES || x + 8 > OLED_WIDTH) {
+        return ESP_ERR_INVALID_ARG;
+    }
+
+    uint8_t columns[8] = {0};
+    for (uint8_t source_y = 0; source_y < 8; ++source_y) {
+        for (uint8_t source_x = 0; source_x < 8; ++source_x) {
+            if ((rows[source_y] & BIT(7 - source_x)) != 0) {
+                columns[source_x] |= BIT(source_y);
+            }
+        }
+    }
+
+    ESP_RETURN_ON_ERROR(set_cursor(x, page), OLED_LOG_TAG, "bitmap cursor failed");
+    return write_bytes(OLED_CONTROL_DATA, columns, sizeof(columns));
+}
+
 esp_err_t ssd1306_oled_draw_bitmap_8x8_2x(uint8_t x, uint8_t page, const uint8_t rows[8])
 {
     if (rows == NULL || page + 1 >= OLED_PAGES || x + 16 > OLED_WIDTH) {

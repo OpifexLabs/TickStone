@@ -139,60 +139,60 @@ static esp_err_t draw_icon(uint8_t x, uint8_t page, habit_ui_icon_t icon)
     return ssd1306_oled_draw_bitmap_8x8_2x(x, page, s_ui_icons[icon]);
 }
 
-static esp_err_t render_home_nav(habit_home_mode_t selected)
+static habit_ui_icon_t header_icon(const habit_screen_t *screen)
 {
-    static const uint8_t x_positions[] = {32, 56, 80};
-    static const habit_ui_icon_t icons[] = {
-        HABIT_UI_ICON_HABITS,
-        HABIT_UI_ICON_ACTION,
-        HABIT_UI_ICON_LOGS,
-    };
-    const size_t selected_index = selected == HABIT_HOME_HABITS ? 0 :
-                                  selected == HABIT_HOME_ACTION ? 1 : 2;
-
-    for (size_t i = 0; i < sizeof(icons) / sizeof(icons[0]); ++i) {
-        ESP_RETURN_ON_ERROR(draw_icon(x_positions[i], 0, icons[i]), TAG, "home icon failed");
+    if (!screen->show_home_nav) {
+        return screen->icon;
     }
-    ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(x_positions[selected_index] + 5, 2, "-"),
-                        TAG,
-                        "home marker failed");
+
+    if (screen->home_mode == HABIT_HOME_HABITS) {
+        return HABIT_UI_ICON_HABITS;
+    }
+    if (screen->home_mode == HABIT_HOME_LOGS) {
+        return HABIT_UI_ICON_LOGS;
+    }
+    return HABIT_UI_ICON_ACTION;
+}
+
+static esp_err_t render_header(const habit_screen_t *screen)
+{
+    const habit_ui_icon_t icon = header_icon(screen);
+    const size_t text_width = strlen(screen->header) * 6;
+    const size_t icon_width = icon == HABIT_UI_ICON_NONE ? 0 : 12;
+    const size_t total_width = icon_width + text_width;
+    uint8_t x = total_width >= 128 ? 0 : (uint8_t)((128 - total_width) / 2);
+
+    if (icon != HABIT_UI_ICON_NONE) {
+        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_bitmap_8x8(x, 1, s_ui_icons[icon]),
+                            TAG,
+                            "header icon failed");
+        x += 12;
+    }
+    if (screen->header[0] != '\0') {
+        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(x, 1, screen->header),
+                            TAG,
+                            "header text failed");
+    }
     return ESP_OK;
 }
 
 static esp_err_t render_screen(const habit_screen_t *screen)
 {
     ESP_RETURN_ON_ERROR(ssd1306_oled_clear(), TAG, "clear failed");
-
-    if (screen->show_home_nav) {
-        ESP_RETURN_ON_ERROR(render_home_nav(screen->home_mode), TAG, "home nav failed");
-    }
-
-    if (screen->header[0] != '\0') {
-        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(center_x_1x(screen->header), 3, screen->header),
-                            TAG,
-                            "header draw failed");
-    }
-
-    ESP_RETURN_ON_ERROR(draw_icon(56, 4, screen->icon), TAG, "main icon failed");
-    ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text_2x(center_x_2x(screen->primary), 7, screen->primary),
+    ESP_RETURN_ON_ERROR(render_header(screen), TAG, "header draw failed");
+    ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text_2x(center_x_2x(screen->primary), 5, screen->primary),
                         TAG,
                         "primary draw failed");
 
     if (screen->secondary[0] != '\0') {
-        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(center_x_1x(screen->secondary), 10, screen->secondary),
+        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(center_x_1x(screen->secondary), 8, screen->secondary),
                             TAG,
                             "secondary draw failed");
     }
 
-    if (screen->meta[0] != '\0') {
-        ESP_RETURN_ON_ERROR(ssd1306_oled_draw_text(center_x_1x(screen->meta), 11, screen->meta),
-                            TAG,
-                            "meta draw failed");
-    }
-
-    ESP_RETURN_ON_ERROR(draw_icon(12, 13, screen->left_action), TAG, "left action failed");
-    ESP_RETURN_ON_ERROR(draw_icon(56, 13, screen->ok_action), TAG, "ok action failed");
-    ESP_RETURN_ON_ERROR(draw_icon(100, 13, screen->right_action), TAG, "right action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(12, 12, screen->left_action), TAG, "left action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(56, 12, screen->ok_action), TAG, "ok action failed");
+    ESP_RETURN_ON_ERROR(draw_icon(100, 12, screen->right_action), TAG, "right action failed");
 
     return ESP_OK;
 }

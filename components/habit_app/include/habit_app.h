@@ -110,7 +110,6 @@ typedef struct {
     char header[16];
     char primary[12];
     char secondary[16];
-    char meta[12];
     bool show_home_nav;
     bool dirty;
 } habit_screen_t;

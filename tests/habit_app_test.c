@@ -63,7 +63,7 @@ static void test_home_modes_habits_and_logs(void)
     long_press(&app, HABIT_BUTTON_LEFT, 100);
     assert(app.home_mode == HABIT_HOME_HABITS);
     const habit_screen_t *screen = habit_app_screen(&app, 100);
-    assert(strcmp(screen->header, "EDIT HABIT") == 0);
+    assert(strcmp(screen->header, "HABITS") == 0);
     assert(strcmp(screen->primary, "STR") == 0);
     assert(strcmp(screen->secondary, "COUNT") == 0);
     assert(screen->icon == HABIT_UI_ICON_HABITS);
@@ -86,9 +86,9 @@ static void test_home_modes_habits_and_logs(void)
     long_press(&app, HABIT_BUTTON_RIGHT, 104);
     assert(app.home_mode == HABIT_HOME_LOGS);
     screen = habit_app_screen(&app, 104);
-    assert(strcmp(screen->header, "TIME LOGS") == 0);
-    assert(strcmp(screen->primary, "EMPTY") == 0);
-    assert(strcmp(screen->secondary, "NO TIME LOGS") == 0);
+    assert(strcmp(screen->header, "LOGS") == 0);
+    assert(strcmp(screen->primary, "NO LOGS") == 0);
+    assert(strcmp(screen->secondary, "") == 0);
     assert(screen->icon == HABIT_UI_ICON_EMPTY);
     assert(screen->ok_action == HABIT_UI_ICON_HOME);
 
@@ -222,7 +222,8 @@ static void test_session_cancel_confirmation_and_visible_save(void)
     assert(app.screen == HABIT_SCREEN_CANCEL_CONFIRM);
 
     const habit_screen_t *screen = habit_app_screen(&app, 110);
-    assert(strcmp(screen->primary, "CANCEL?") == 0);
+    assert(strcmp(screen->header, "CANCEL STA?") == 0);
+    assert(strcmp(screen->primary, "NO SAVE") == 0);
     assert(screen->left_action == HABIT_UI_ICON_BACK);
     assert(screen->right_action == HABIT_UI_ICON_CLOSE);
 

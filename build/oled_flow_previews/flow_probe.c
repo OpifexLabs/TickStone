@@ -17,7 +17,7 @@ static void show(habit_app_t *app, const char *title, int64_t now)
 {
     habit_app_tick(app, now);
     const habit_screen_t *screen = habit_app_screen(app, now);
-    printf("%s|%d|%d|%d|%d|%d|%d|%d|%s|%s|%s|%s\n",
+    printf("%s|%d|%d|%d|%d|%d|%d|%d|%s|%s|%s\n",
            title,
            (int)screen->id,
            (int)screen->home_mode,
@@ -28,8 +28,7 @@ static void show(habit_app_t *app, const char *title, int64_t now)
            screen->show_home_nav ? 1 : 0,
            screen->header,
            screen->primary,
-           screen->secondary,
-           screen->meta);
+           screen->secondary);
 }
 
 int main(void)

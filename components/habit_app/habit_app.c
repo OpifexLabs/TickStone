@@ -909,33 +909,25 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         if (app->home_mode == HABIT_HOME_HABITS) {
             screen->icon = HABIT_UI_ICON_HABITS;
             screen->ok_action = HABIT_UI_ICON_EDIT;
-            snprintf(screen->header, sizeof(screen->header), "EDIT HABIT");
+            snprintf(screen->header, sizeof(screen->header), "HABITS");
             snprintf(screen->primary, sizeof(screen->primary), "%s", habit->label);
             if (habit->type == HABIT_TYPE_TIME && habit->time_mode == HABIT_TIME_TIMER) {
                 snprintf(screen->secondary, sizeof(screen->secondary), "TIMER %u MIN", habit->default_minutes);
             } else {
                 snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit_mode_name(habit));
             }
-            snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
-                     (unsigned)(app->selected + 1),
-                     (unsigned)app->habit_count);
         } else if (app->home_mode == HABIT_HOME_LOGS) {
             const habit_log_t *log = time_log_at_view_index(app, app->log_view_index);
-            size_t log_count = time_log_count(app);
             screen->icon = log == NULL ? HABIT_UI_ICON_EMPTY : HABIT_UI_ICON_LOGS;
             screen->ok_action = log == NULL ? HABIT_UI_ICON_HOME : HABIT_UI_ICON_CHART;
-            snprintf(screen->header, sizeof(screen->header), "TIME LOGS");
+            snprintf(screen->header, sizeof(screen->header), "LOGS");
             if (log == NULL) {
-                snprintf(screen->primary, sizeof(screen->primary), "EMPTY");
-                snprintf(screen->secondary, sizeof(screen->secondary), "NO TIME LOGS");
+                snprintf(screen->primary, sizeof(screen->primary), "NO LOGS");
             } else {
                 const habit_config_t *log_habit = habit_by_id(app, log->habit_id);
                 const char *label = log_habit == NULL ? "???" : log_habit->label;
                 format_duration(log->duration_seconds, screen->primary, sizeof(screen->primary));
                 snprintf(screen->secondary, sizeof(screen->secondary), "%s TIME", label);
-                snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
-                         (unsigned)(app->log_view_index + 1),
-                         (unsigned)log_count);
             }
         } else {
             screen->icon = habit_mode_icon(habit);
@@ -947,9 +939,6 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
             } else {
                 snprintf(screen->secondary, sizeof(screen->secondary), "%s", habit_mode_name(habit));
             }
-            snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
-                     (unsigned)(app->selected + 1),
-                     (unsigned)app->habit_count);
         }
         break;
 
@@ -982,10 +971,9 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         screen->left_action = HABIT_UI_ICON_MINUS;
         screen->ok_action = HABIT_UI_ICON_PLAY;
         screen->right_action = HABIT_UI_ICON_PLUS;
-        snprintf(screen->header, sizeof(screen->header), "SET TIMER");
+        snprintf(screen->header, sizeof(screen->header), "%s TIMER", habit->label);
         snprintf(screen->primary, sizeof(screen->primary), "%lu", (unsigned long)app->setup_minutes);
         snprintf(screen->secondary, sizeof(screen->secondary), "MINUTES");
-        snprintf(screen->meta, sizeof(screen->meta), "%s", habit->label);
         break;
 
     case HABIT_SCREEN_SESSION: {
@@ -1008,9 +996,8 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         screen->icon = HABIT_UI_ICON_CLOSE;
         screen->left_action = HABIT_UI_ICON_BACK;
         screen->right_action = HABIT_UI_ICON_CLOSE;
-        snprintf(screen->header, sizeof(screen->header), "CANCEL SESSION");
-        snprintf(screen->primary, sizeof(screen->primary), "CANCEL?");
-        snprintf(screen->secondary, sizeof(screen->secondary), "TIME NOT SAVED");
+        snprintf(screen->header, sizeof(screen->header), "CANCEL %s?", habit->label);
+        snprintf(screen->primary, sizeof(screen->primary), "NO SAVE");
         break;
 
     case HABIT_SCREEN_STATS: {
@@ -1031,9 +1018,6 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
         snprintf(screen->secondary, sizeof(screen->secondary), "%s %s",
                  habit->label,
                  habit->type == HABIT_TYPE_COUNT ? "COUNT" : "TIME");
-        snprintf(screen->meta, sizeof(screen->meta), "%u OF %u",
-                 (unsigned)(app->stat_view + 1),
-                 (unsigned)HABIT_STAT_COUNT);
         if (app->stat_view == HABIT_STAT_WEEK_DELTA) {
             int32_t delta = habit_app_stat_week_delta(app, habit->id, now_seconds);
             char sign = delta >= 0 ? '+' : '-';
