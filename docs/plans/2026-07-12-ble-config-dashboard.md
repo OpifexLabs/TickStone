@@ -1,6 +1,6 @@
 # BLE configuration sync and historical dashboard
 
-Status: implementation complete; deployment verification in progress
+Status: complete
 
 ## Invariants
 
@@ -40,4 +40,12 @@ Status: implementation complete; deployment verification in progress
 - ESP-IDF 5.5.3 build: pass for ESP32-C3.
 - Hardware flash: pass on `/dev/cu.usbmodem21201`.
 - Real BLE config read: protocol 1, hash `261ff10d`, 3 active and 7 inactive slots.
-- Pi deployment, service hardening and browser QA: pending final branch deployment.
+- Pi deployment: pass on HouseOfMarvin; schema v2 migration, systemd units,
+  backup timer, LAN/Tailscale health checks and automatic restart verified.
+- Production BLE metadata sync: pass with protocol 1, hash `261ff10d` and all
+  ten slots persisted. No pending log was available for a fresh physical-event
+  test; linked-event persistence is covered by the sync/store tests.
+- Dashboard production smoke test: pass for overview, real habit names and
+  detail routes. Its systemd sandbox permits SQLite WAL/SHM runtime files while
+  the application still enforces `mode=ro` and `PRAGMA query_only`.
+- Raw JSONL safety: checksum and line count unchanged across migration/deploy.

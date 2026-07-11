@@ -31,7 +31,9 @@ LockPersonality=true
 MemoryDenyWriteExecute=true
 SystemCallArchitectures=native
 RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6
-ReadOnlyPaths=/home/allangamal/.local/share/tickstone
+# SQLite may create WAL/SHM runtime files even for mode=ro readers. The
+# dashboard itself enforces mode=ro and PRAGMA query_only.
+ReadWritePaths=/home/allangamal/.local/share/tickstone
 
 [Install]
 WantedBy=multi-user.target
