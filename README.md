@@ -61,6 +61,11 @@ tools/tickstone_ble_sync.py --watch
 
 Utan `--watch` gor kommandot ett enda synkforsok. Nar en logg skapas oppnar TickStone ett BLE-fonster i hogst 60 sekunder. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
 
+Firmware exponerar ocksa en read-only, paginerad config-characteristic
+`7e570000-7a1b-4c2d-9e10-000000000004`. Varje anslutning laser en versionsmarkt
+snapshot av alla tio slots innan loggarna synkas. Gammal firmware utan characteristic
+fortsatter i legacy-lage. Delvis eller felaktigt last config sparas aldrig.
+
 Klockan anvander tidszonen Europe/Stockholm. En TickStone-dag byter vid 05:00 lokal tid. Veckor ar mandag-sondag och manader foljer kalendern, inklusive sommartid.
 
 ## Strukturerad historik pa Raspberry Pi
@@ -88,7 +93,7 @@ tools/tickstone_ble_sync.py --watch \
 
 Ett stabilt event-ID ar databasens primarnyckel. Om processen avbryts mellan ra-logg och databas reparerar en omleverans den saknade databasraden utan att duplicera JSONL. Samma ID med ett annat innehall avvisas i stallet for att skriva om historik. Raderade event bevaras med `deleted=1`; de tas inte bort fysiskt.
 
-Habitnamn lagras som snapshots eftersom en stabil plats kan byta namn utan att aldre historik far byta betydelse. Exportera en konfiguration som JSON med formen `{"habits":[{"id":0,"code":"MED","name":"MEDITATION","mode":"time","minutes":10}]}` och registrera den med:
+Habitnamn lagras automatiskt som snapshots eftersom en stabil plats kan byta namn utan att aldre historik far byta betydelse. `record-habits` finns endast som reserv for legacy-importer utan BLE-metadata; normal drift behover ingen manuell mapping. Reservformatet ar `{"habits":[{"id":0,"code":"MED","name":"MEDITATION","mode":"time","minutes":10}]}`:
 
 ```sh
 python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone record-habits habits.json
@@ -105,6 +110,12 @@ Databasen kan alltid byggas om fran JSONL. Backuper och ra-logg ska inte laggas 
 ## Lokal statistikdashboard
 
 Dashboarden ar en read-only webbvy over `tickstone.sqlite3`. Den har inga skrivande API:er, inga externa typsnitt, script eller CDN-anrop och ar avsedd enbart for hem-LAN och Tailscale.
+
+Habit-raderna ar klickbara. `/habit/0?period=week`, `month`, `year` och `all` visar
+kalenderbaserad aktivitet, total, aktiva dagar, genomsnitt, streak och periodjamforelse.
+BLE-metadata versionslagras med giltighetsintervall, och nya event pekar pa snapshoten
+som lastes fore ACK. Aldre importerade event utan snapshot visas som tydligt markerad
+fallback och far inte fabricerad historisk sakerhet.
 
 - LAN: `http://192.168.86.29:8750`
 - Tailscale: `http://100.111.154.107:8750`

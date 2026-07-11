@@ -256,6 +256,7 @@ static esp_err_t persist_app_state(void)
         habit_config_t habits[HABIT_APP_MAX_HABITS];
         size_t count = habit_app_copy_habits(&s_app, habits, HABIT_APP_MAX_HABITS);
         tickstone_usb_update_habits(habits, count);
+        tickstone_ble_publish_habits(habits, count);
     }
     if (s_app.daily_dirty) {
         ESP_RETURN_ON_ERROR(habit_storage_save_daily(&s_app), TAG, "save daily summaries failed");
@@ -332,6 +333,7 @@ void app_main(void)
     size_t transport_habit_count = habit_app_copy_habits(&s_app, transport_habits, HABIT_APP_MAX_HABITS);
     ESP_ERROR_CHECK(tickstone_usb_start(transport_habits, transport_habit_count));
     ESP_ERROR_CHECK(tickstone_ble_init());
+    tickstone_ble_publish_habits(transport_habits, transport_habit_count);
 
     habit_screen_t last_screen = {0};
     bool has_last_screen = false;
@@ -401,7 +403,8 @@ void app_main(void)
             ESP_ERROR_CHECK(finish_alert_start(&finish_alert, &display_idle, milliseconds));
             seen_completion_sequence = completion_sequence;
         }
-        const bool request_ble_sync = s_app.logs_dirty && first_unsynced_log() != NULL;
+        const bool request_ble_sync = (s_app.logs_dirty && first_unsynced_log() != NULL) ||
+                                      s_app.habits_dirty;
         ESP_ERROR_CHECK(persist_app_state());
         if (request_ble_sync || tickstone_usb_take_sync_request()) {
             ESP_ERROR_CHECK(tickstone_ble_request_sync(milliseconds));

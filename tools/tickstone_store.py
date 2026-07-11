@@ -13,7 +13,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from zoneinfo import ZoneInfo
 
-SCHEMA_VERSION = 1
+SCHEMA_VERSION = 2
 REQUIRED_EVENT_KEYS = {
     "id", "habit_id", "type", "started_at", "ended_at",
     "duration_seconds", "count", "deleted",
@@ -38,7 +38,11 @@ CREATE TABLE IF NOT EXISTS habits (
 CREATE TABLE IF NOT EXISTS habit_snapshots (
     id INTEGER PRIMARY KEY,
     content_hash TEXT NOT NULL UNIQUE,
-    recorded_at TEXT NOT NULL
+    recorded_at TEXT NOT NULL,
+    protocol_version INTEGER NOT NULL DEFAULT 0 CHECK (protocol_version >= 0),
+    device_hash TEXT,
+    valid_from INTEGER NOT NULL,
+    valid_to INTEGER CHECK (valid_to IS NULL OR valid_to > valid_from)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS habit_snapshot_entries (
     snapshot_id INTEGER NOT NULL REFERENCES habit_snapshots(id) ON DELETE CASCADE,
@@ -47,6 +51,7 @@ CREATE TABLE IF NOT EXISTS habit_snapshot_entries (
     name TEXT NOT NULL,
     type TEXT NOT NULL CHECK (type IN ('count', 'time')),
     default_minutes INTEGER NOT NULL CHECK (default_minutes BETWEEN 1 AND 99),
+    active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
     PRIMARY KEY (snapshot_id, slot_id)
 ) STRICT;
 CREATE TABLE IF NOT EXISTS events (
@@ -61,10 +66,13 @@ CREATE TABLE IF NOT EXISTS events (
     tickstone_day TEXT NOT NULL,
     ingested_at TEXT NOT NULL,
     raw_json TEXT NOT NULL
+    ,config_snapshot_id INTEGER REFERENCES habit_snapshots(id)
 ) STRICT;
 CREATE INDEX IF NOT EXISTS events_habit_day_idx ON events(habit_id, tickstone_day);
 CREATE INDEX IF NOT EXISTS events_started_idx ON events(started_at);
 CREATE INDEX IF NOT EXISTS events_active_day_idx ON events(tickstone_day, deleted);
+CREATE INDEX IF NOT EXISTS events_habit_started_idx ON events(habit_id, started_at, deleted);
+CREATE INDEX IF NOT EXISTS habit_snapshots_validity_idx ON habit_snapshots(valid_from, valid_to);
 CREATE VIEW IF NOT EXISTS event_history AS
 SELECT e.*, h.code AS current_habit_code, h.name AS current_habit_name
 FROM events e LEFT JOIN habits h ON h.slot_id = e.habit_id;
@@ -143,15 +151,20 @@ def open_store(path):
         has_metadata = connection.execute(
             "SELECT 1 FROM sqlite_master WHERE type='table' AND name='metadata'"
         ).fetchone()
+        current_version = 0
         if has_metadata:
             row = connection.execute(
                 "SELECT value FROM metadata WHERE key='schema_version'"
             ).fetchone()
             if row and int(row[0]) > SCHEMA_VERSION:
                 raise RuntimeError("database uses a newer schema version")
+            current_version = int(row[0]) if row else 0
+        if current_version == 1:
+            _migrate_v1_to_v2(connection)
         connection.executescript(SCHEMA)
         connection.execute(
-            "INSERT OR IGNORE INTO metadata(key, value) VALUES('schema_version', ?)",
+            "INSERT INTO metadata(key, value) VALUES('schema_version', ?) "
+            "ON CONFLICT(key) DO UPDATE SET value=excluded.value",
             (str(SCHEMA_VERSION),),
         )
         connection.commit()
@@ -160,7 +173,24 @@ def open_store(path):
         connection.close()
 
 
-def _insert_event(connection, event, ingested_at=None):
+def _migrate_v1_to_v2(connection):
+    connection.execute("ALTER TABLE habit_snapshots ADD COLUMN protocol_version INTEGER NOT NULL DEFAULT 0")
+    connection.execute("ALTER TABLE habit_snapshots ADD COLUMN device_hash TEXT")
+    connection.execute("ALTER TABLE habit_snapshots ADD COLUMN valid_from INTEGER")
+    connection.execute("ALTER TABLE habit_snapshots ADD COLUMN valid_to INTEGER")
+    connection.execute("ALTER TABLE habit_snapshot_entries ADD COLUMN active INTEGER NOT NULL DEFAULT 1")
+    connection.execute("ALTER TABLE events ADD COLUMN config_snapshot_id INTEGER REFERENCES habit_snapshots(id)")
+    connection.execute(
+        "UPDATE habit_snapshots SET valid_from=COALESCE(CAST(strftime('%s', recorded_at) AS INTEGER), 0)"
+    )
+    rows = connection.execute("SELECT id, valid_from FROM habit_snapshots ORDER BY valid_from, id").fetchall()
+    for index, (snapshot_id, _) in enumerate(rows[:-1]):
+        connection.execute("UPDATE habit_snapshots SET valid_to=? WHERE id=?", (rows[index + 1][1], snapshot_id))
+    connection.execute("UPDATE metadata SET value='2' WHERE key='schema_version'")
+    connection.commit()
+
+
+def _insert_event(connection, event, ingested_at=None, snapshot_id=None):
     event = validate_event(event)
     raw = canonical_json(event)
     existing = connection.execute("SELECT raw_json FROM events WHERE id=?", (event["id"],)).fetchone()
@@ -176,12 +206,12 @@ def _insert_event(connection, event, ingested_at=None):
     connection.execute(
         """INSERT INTO events(
             id, habit_id, type, started_at, ended_at, duration_seconds, count,
-            deleted, tickstone_day, ingested_at, raw_json
-        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            deleted, tickstone_day, ingested_at, raw_json, config_snapshot_id
+        ) VALUES(?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
         (
             event["id"], event["habit_id"], event["type"], event["started_at"],
             event["ended_at"], event["duration_seconds"], event["count"],
-            int(event["deleted"]), tickstone_day(event["started_at"]).isoformat(), now, raw,
+            int(event["deleted"]), tickstone_day(event["started_at"]).isoformat(), now, raw, snapshot_id,
         ),
     )
     return True
@@ -218,12 +248,12 @@ def append_raw_once(path, event):
     return True
 
 
-def ingest_event(raw_path, database_path, event):
+def ingest_event(raw_path, database_path, event, snapshot_id=None):
     event = validate_event(event)
     raw_already_present = raw_event_exists(raw_path, event)
     with open_store(database_path) as connection:
         with connection:
-            inserted = _insert_event(connection, event)
+            inserted = _insert_event(connection, event, snapshot_id=snapshot_id)
     raw_appended = False if raw_already_present else append_raw_once(raw_path, event)
     return IngestResult(raw_appended, inserted)
 
@@ -250,7 +280,10 @@ def _validate_habits(habits):
     clean = []
     seen = set()
     for habit in habits:
-        if not isinstance(habit, dict) or set(habit) != {"id", "code", "name", "mode", "minutes"}:
+        if not isinstance(habit, dict) or not set(habit).issubset(
+                {"id", "code", "name", "mode", "minutes", "active"}) or not {
+                    "id", "code", "name", "mode", "minutes"
+                }.issubset(habit):
             raise ValueError("invalid habit fields")
         ident = habit["id"]
         if type(ident) is not int or not 0 <= ident <= 9 or ident in seen:
@@ -264,37 +297,64 @@ def _validate_habits(habits):
             raise ValueError("habit minutes must be between one and 99")
         code = str(habit["code"]).strip().upper()
         name = " ".join(str(habit["name"]).strip().upper().split())
-        if not 1 <= len(code) <= 3 or not 1 <= len(name) <= 15:
+        active = habit.get("active", True)
+        if type(active) is not bool:
+            raise ValueError("habit active must be boolean")
+        if active and (not 1 <= len(code) <= 3 or not 1 <= len(name) <= 15):
             raise ValueError("habit code or name has invalid length")
-        clean.append({"id": ident, "code": code, "name": name, "mode": mode, "minutes": minutes})
+        if not active and (len(code) > 3 or len(name) > 15):
+            raise ValueError("inactive habit code or name has invalid length")
+        clean.append({"id": ident, "code": code, "name": name, "mode": mode,
+                      "minutes": minutes, "active": active})
     return sorted(clean, key=lambda item: item["id"])
 
 
-def record_habits(database_path, habits, recorded_at=None):
+def _epoch_from_recorded_at(recorded_at):
+    if recorded_at is None:
+        return int(datetime.now(timezone.utc).timestamp())
+    return int(datetime.fromisoformat(recorded_at.replace("Z", "+00:00")).timestamp())
+
+
+def record_habits(database_path, habits, recorded_at=None, valid_from=None,
+                  device_hash=None, protocol_version=1):
     clean = _validate_habits(habits)
     raw = canonical_json(clean)
     digest = hashlib.sha256(raw.encode()).hexdigest()
     now = recorded_at or utc_now()
+    requested_from = int(valid_from) if valid_from is not None else _epoch_from_recorded_at(now)
     with open_store(database_path) as connection, connection:
         existing = connection.execute(
             "SELECT id FROM habit_snapshots WHERE content_hash=?", (digest,)
         ).fetchone()
         if existing:
             return existing[0]
+        latest = connection.execute(
+            "SELECT valid_from FROM habit_snapshots ORDER BY valid_from DESC, id DESC LIMIT 1"
+        ).fetchone()
+        effective_from = max(requested_from, latest[0] + 1) if latest else requested_from
+        connection.execute(
+            "UPDATE habit_snapshots SET valid_to=? WHERE valid_to IS NULL", (effective_from,)
+        )
         cursor = connection.execute(
-            "INSERT INTO habit_snapshots(content_hash, recorded_at) VALUES(?, ?)", (digest, now)
+            """INSERT INTO habit_snapshots(
+                   content_hash, recorded_at, protocol_version, device_hash, valid_from
+               ) VALUES(?, ?, ?, ?, ?)""",
+            (digest, now, protocol_version, device_hash, effective_from),
         )
         snapshot_id = cursor.lastrowid
         for habit in clean:
             connection.execute(
                 """INSERT INTO habit_snapshot_entries(
-                    snapshot_id, slot_id, code, name, type, default_minutes
-                ) VALUES(?, ?, ?, ?, ?, ?)""",
-                (snapshot_id, habit["id"], habit["code"], habit["name"], habit["mode"], habit["minutes"]),
+                    snapshot_id, slot_id, code, name, type, default_minutes, active
+                ) VALUES(?, ?, ?, ?, ?, ?, ?)""",
+                (snapshot_id, habit["id"], habit["code"], habit["name"], habit["mode"],
+                 habit["minutes"], int(habit["active"])),
             )
-        active_ids = {habit["id"] for habit in clean}
+        active_ids = {habit["id"] for habit in clean if habit["active"]}
         connection.execute("UPDATE habits SET active=0, updated_at=?", (now,))
         for habit in clean:
+            if not habit["active"]:
+                continue
             connection.execute(
                 """INSERT INTO habits(slot_id, code, name, type, default_minutes, active,
                            current_snapshot_id, updated_at)
@@ -311,6 +371,36 @@ def record_habits(database_path, habits, recorded_at=None):
                 (now, *sorted(active_ids)),
             )
         return snapshot_id
+
+
+def event_habit_metadata(connection, event_id):
+    event = connection.execute(
+        "SELECT habit_id, started_at, config_snapshot_id FROM events WHERE id=?", (event_id,)
+    ).fetchone()
+    if not event:
+        return None
+    habit_id, started_at, snapshot_id = event
+    if snapshot_id is not None:
+        row = connection.execute(
+            """SELECT code, name, type FROM habit_snapshot_entries
+                WHERE snapshot_id=? AND slot_id=? AND active=1""", (snapshot_id, habit_id)
+        ).fetchone()
+        if row:
+            return {"code": row[0], "name": row[1], "type": row[2], "status": "exact"}
+    row = connection.execute(
+        """SELECT e.code, e.name, e.type
+             FROM habit_snapshot_entries e
+             JOIN habit_snapshots s ON s.id=e.snapshot_id
+            WHERE e.slot_id=? AND e.active=1 AND s.valid_from<=?
+              AND (s.valid_to IS NULL OR ?<s.valid_to)
+            ORDER BY s.valid_from DESC LIMIT 1""", (habit_id, started_at, started_at)
+    ).fetchone()
+    if row:
+        return {"code": row[0], "name": row[1], "type": row[2], "status": "exact"}
+    row = connection.execute("SELECT code, name, type FROM habits WHERE slot_id=?", (habit_id,)).fetchone()
+    if row and row[1]:
+        return {"code": row[0], "name": row[1], "type": row[2], "status": "fallback"}
+    return {"code": None, "name": None, "type": None, "status": "missing"}
 
 
 def integrity_report(raw_path, database_path):

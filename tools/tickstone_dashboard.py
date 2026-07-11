@@ -3,22 +3,20 @@
 
 import argparse
 import html
-import json
+import re
 import sqlite3
-from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import urlsplit
+from urllib.parse import parse_qs, urlsplit
 from zoneinfo import ZoneInfo
 
 WEB_ROOT = Path(__file__).with_name("tickstone_dashboard_web")
 STOCKHOLM = ZoneInfo("Europe/Stockholm")
-SWEDISH_MONTHS = (
-    "januari", "februari", "mars", "april", "maj", "juni",
-    "juli", "augusti", "september", "oktober", "november", "december",
-)
+SWEDISH_MONTHS = ("januari", "februari", "mars", "april", "maj", "juni", "juli",
+                  "augusti", "september", "oktober", "november", "december")
 DAY_LABELS = ("M", "T", "O", "T", "F", "L", "S")
+PERIODS = ("week", "month", "year", "all")
 
 
 def _readonly_connection(database):
@@ -26,190 +24,267 @@ def _readonly_connection(database):
     connection = sqlite3.connect(uri, uri=True, timeout=5)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA query_only=ON")
+    connection.execute("PRAGMA foreign_keys=ON")
     return connection
+
+
+def _today(now_epoch):
+    now = datetime.fromtimestamp(now_epoch, timezone.utc).astimezone(STOCKHOLM)
+    return now, (now - timedelta(hours=5)).date()
 
 
 def _format_when(epoch, today):
     local = datetime.fromtimestamp(epoch, timezone.utc).astimezone(STOCKHOLM)
-    if local.date() == today:
-        prefix = "Idag"
-    elif local.date() == today - timedelta(days=1):
-        prefix = "Igår"
-    else:
-        prefix = f"{local.day} {SWEDISH_MONTHS[local.month - 1][:3]}"
+    prefix = "Idag" if local.date() == today else "Igår" if local.date() == today - timedelta(days=1) \
+        else f"{local.day} {SWEDISH_MONTHS[local.month - 1][:3]}"
     return f"{prefix} {local:%H:%M}"
 
 
-def _habit_name(row):
-    return row["name"] or f"Habit {row['habit_id'] + 1}"
+def _format_value(value, kind):
+    if kind == "count":
+        return value, "gång" if value == 1 else "gånger"
+    if value < 60:
+        return value, "sekunder"
+    if value < 3600:
+        minutes = round(value / 60)
+        return minutes, "minut" if minutes == 1 else "minuter"
+    hours = value // 3600
+    minutes = (value % 3600) // 60
+    return f"{hours}h {minutes}m" if minutes else f"{hours}h", "tid"
+
+
+def _metadata_status(connection):
+    known = connection.execute(
+        "SELECT 1 FROM habit_snapshots WHERE protocol_version>0 LIMIT 1"
+    ).fetchone()
+    if not known:
+        return "legacy"
+    uncertain = connection.execute(
+        "SELECT 1 FROM events WHERE config_snapshot_id IS NULL LIMIT 1"
+    ).fetchone()
+    return "mixed" if uncertain else "synced"
 
 
 def build_dashboard(database, now_epoch=None):
     now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
-    now = datetime.fromtimestamp(now_epoch, timezone.utc).astimezone(STOCKHOLM)
-    today = (now - timedelta(hours=5)).date()
+    now, today = _today(now_epoch)
     first_day = today - timedelta(days=6)
     with _readonly_connection(database) as connection:
-        rows = connection.execute(
-            """SELECT e.id, e.habit_id, e.type, e.started_at, e.duration_seconds,
-                      e.count, e.tickstone_day, h.code, h.name
-                 FROM events e LEFT JOIN habits h ON h.slot_id=e.habit_id
-                WHERE e.deleted=0 ORDER BY e.started_at DESC, e.id DESC"""
+        daily_rows = connection.execute(
+            """SELECT tickstone_day, COUNT(*) AS events,
+                      SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END) AS seconds
+                 FROM events WHERE deleted=0 AND tickstone_day BETWEEN ? AND ?
+                GROUP BY tickstone_day""", (first_day.isoformat(), today.isoformat())
         ).fetchall()
+        aggregate = {row["tickstone_day"]: row for row in daily_rows}
+        habits_rows = connection.execute(
+            """SELECT h.slot_id AS habit_id, h.code, h.name, COALESCE(h.type,MIN(e.type)) AS type,
+                      COUNT(e.id) AS sessions,
+                      COALESCE(SUM(CASE WHEN e.type='count' THEN e.count ELSE 0 END),0) AS count_total,
+                      COALESCE(SUM(CASE WHEN e.type='time' THEN e.duration_seconds ELSE 0 END),0) AS seconds
+                 FROM habits h LEFT JOIN events e ON e.habit_id=h.slot_id AND e.deleted=0
+                WHERE h.active=1 GROUP BY h.slot_id
+                UNION ALL
+               SELECT e.habit_id, NULL, NULL, MIN(e.type), COUNT(e.id),
+                      SUM(CASE WHEN e.type='count' THEN e.count ELSE 0 END),
+                      SUM(CASE WHEN e.type='time' THEN e.duration_seconds ELSE 0 END)
+                 FROM events e LEFT JOIN habits h ON h.slot_id=e.habit_id
+                WHERE e.deleted=0 AND h.slot_id IS NULL GROUP BY e.habit_id"""
+        ).fetchall()
+        recent_rows = connection.execute(
+            """SELECT e.id, e.habit_id, e.type, e.started_at, e.duration_seconds, e.count,
+                      COALESCE(se.code,h.code) AS code, COALESCE(se.name,h.name) AS name,
+                      CASE WHEN se.name IS NOT NULL THEN 'exact'
+                           WHEN h.name IS NOT NULL THEN 'fallback' ELSE 'missing' END AS metadata_status
+                 FROM events e
+                 LEFT JOIN habit_snapshot_entries se
+                   ON se.snapshot_id=e.config_snapshot_id AND se.slot_id=e.habit_id AND se.active=1
+                 LEFT JOIN habits h ON h.slot_id=e.habit_id
+                WHERE e.deleted=0 ORDER BY e.started_at DESC,e.id DESC LIMIT 8"""
+        ).fetchall()
+        metadata_status = _metadata_status(connection)
 
-    weekly = [row for row in rows if first_day.isoformat() <= row["tickstone_day"] <= today.isoformat()]
-    daily_counts = defaultdict(int)
-    for row in weekly:
-        daily_counts[row["tickstone_day"]] += 1
-    peak = max(daily_counts.values(), default=1)
+    peak = max((row["events"] for row in daily_rows), default=1)
     days = []
     for offset in range(7):
         current = first_day + timedelta(days=offset)
-        value = daily_counts[current.isoformat()]
-        days.append({
-            "date": current.isoformat(),
-            "label": DAY_LABELS[current.weekday()],
-            "value": value,
-            "height": 8 if value == 0 else max(22, round(value / peak * 100)),
-            "today": current == today,
-        })
-
-    per_habit = {}
-    for row in rows:
-        item = per_habit.setdefault(row["habit_id"], {
-            "id": row["habit_id"], "name": _habit_name(row), "code": row["code"] or "",
-            "total": 0, "minutes": 0, "seconds": 0, "sessions": 0,
-        })
-        item["sessions"] += 1
-        if row["type"] == "count":
-            item["total"] += row["count"]
-        else:
-            item["seconds"] += row["duration_seconds"]
-            item["minutes"] = round(item["seconds"] / 60)
-    habits = sorted(per_habit.values(), key=lambda item: (-item["sessions"], item["id"]))
-    for item in habits:
-        if item["total"]:
-            item["display_value"], item["display_unit"] = item["total"], "gånger"
-        elif item["seconds"] < 60:
-            item["display_value"], item["display_unit"] = item["seconds"], "sekunder"
-        else:
-            item["display_value"], item["display_unit"] = item["minutes"], "minuter"
-
-    active_days = {row["tickstone_day"] for row in rows}
+        value = aggregate.get(current.isoformat(), {"events": 0})["events"]
+        days.append({"date": current.isoformat(), "label": DAY_LABELS[current.weekday()],
+                     "value": value, "height": 8 if not value else max(22, round(value / peak * 100)),
+                     "today": current == today})
+    habits = []
+    for row in habits_rows:
+        kind = row["type"] or "count"
+        value = row["count_total"] if kind == "count" else row["seconds"]
+        display, unit = _format_value(value, kind)
+        habits.append({"id": row["habit_id"], "name": row["name"] or f"Habit {row['habit_id'] + 1}",
+                       "code": row["code"] or "", "type": kind, "sessions": row["sessions"],
+                       "total": row["count_total"], "seconds": row["seconds"],
+                       "minutes": round(row["seconds"] / 60), "display_value": display,
+                       "display_unit": unit})
+    habits.sort(key=lambda item: (-item["sessions"], item["id"]))
+    active_days = {key for key, row in aggregate.items() if row["events"]}
     streak = 0
     cursor = today
     while cursor.isoformat() in active_days:
         streak += 1
         cursor -= timedelta(days=1)
-
     recent = []
-    for row in rows[:8]:
-        if row["type"] == "count":
-            kind = f"{row['count']} gång" if row["count"] == 1 else f"{row['count']} gånger"
-        else:
-            seconds = row["duration_seconds"]
-            kind = f"{seconds} sek" if seconds < 60 else f"{round(seconds / 60)} min"
-        recent.append({
-            "id": row["id"], "name": _habit_name(row), "kind": kind,
-            "when": _format_when(row["started_at"], now.date()),
-        })
+    for row in recent_rows:
+        value = row["count"] if row["type"] == "count" else row["duration_seconds"]
+        shown, unit = _format_value(value, row["type"])
+        recent.append({"id": row["id"], "habit_id": row["habit_id"],
+                       "name": row["name"] or f"Habit {row['habit_id'] + 1}",
+                       "kind": f"{shown} {unit}", "when": _format_when(row["started_at"], now.date()),
+                       "metadata_status": row["metadata_status"]})
+    week_events = sum(row["events"] for row in daily_rows)
+    week_seconds = sum(row["seconds"] for row in daily_rows)
+    return {"generated_at": f"{now.day} {SWEDISH_MONTHS[now.month - 1]} {now:%Y %H:%M}",
+            "metadata_status": metadata_status,
+            "summary": {"today": aggregate.get(today.isoformat(), {"events": 0})["events"],
+                        "week": week_events, "minutes": round(week_seconds / 60), "streak": streak},
+            "days": days, "habits": habits, "recent": recent}
 
-    return {
-        "generated_at": f"{now.day} {SWEDISH_MONTHS[now.month - 1]} {now:%Y %H:%M}",
-        "summary": {
-            "today": daily_counts[today.isoformat()],
-            "week": len(weekly),
-            "minutes": round(sum(row["duration_seconds"] for row in weekly if row["type"] == "time") / 60),
-            "streak": streak,
-        },
-        "days": days,
-        "habits": habits,
-        "recent": recent,
-    }
+
+def _period_bounds(today, period):
+    if period == "week":
+        start = today - timedelta(days=today.weekday()); end = start + timedelta(days=7)
+        previous = (start - timedelta(days=7), start)
+    elif period == "month":
+        start = today.replace(day=1)
+        end = date(start.year + (start.month == 12), 1 if start.month == 12 else start.month + 1, 1)
+        previous_start = date(start.year - (start.month == 1), 12 if start.month == 1 else start.month - 1, 1)
+        previous = (previous_start, start)
+    elif period == "year":
+        start = date(today.year, 1, 1); end = date(today.year + 1, 1, 1)
+        previous = (date(today.year - 1, 1, 1), start)
+    else:
+        start = date(1970, 1, 1); end = today + timedelta(days=1); previous = (start, start)
+    return start, end, previous
+
+
+def _longest_streak(day_strings, today):
+    days = sorted({date.fromisoformat(value) for value in day_strings})
+    longest = run = 0
+    previous = None
+    for current in days:
+        run = run + 1 if previous and current == previous + timedelta(days=1) else 1
+        longest = max(longest, run); previous = current
+    current_run = 0; cursor = today
+    known = set(days)
+    while cursor in known:
+        current_run += 1; cursor -= timedelta(days=1)
+    return current_run, longest
+
+
+def build_habit_detail(database, habit_id, period="week", now_epoch=None):
+    if type(habit_id) is not int or not 0 <= habit_id <= 9 or period not in PERIODS:
+        raise ValueError("invalid habit or period")
+    now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
+    now, today = _today(now_epoch)
+    start, end, previous = _period_bounds(today, period)
+    with _readonly_connection(database) as connection:
+        habit = connection.execute(
+            "SELECT slot_id,code,name,type,current_snapshot_id FROM habits WHERE slot_id=?", (habit_id,)
+        ).fetchone()
+        if not habit:
+            exists = connection.execute("SELECT type FROM events WHERE habit_id=? LIMIT 1", (habit_id,)).fetchone()
+            if not exists:
+                return None
+            identity = {"id": habit_id, "code": "", "name": f"Habit {habit_id + 1}", "type": exists[0]}
+            exact_filter, identity_params = "", []
+        else:
+            identity = {"id": habit_id, "code": habit["code"] or "", "name": habit["name"] or f"Habit {habit_id + 1}", "type": habit["type"] or "count"}
+            exact_filter = """AND (e.config_snapshot_id IS NULL OR EXISTS(
+                SELECT 1 FROM habit_snapshot_entries se WHERE se.snapshot_id=e.config_snapshot_id
+                 AND se.slot_id=e.habit_id AND se.active=1 AND se.code=? AND se.name=? AND se.type=?))"""
+            identity_params = [identity["code"], identity["name"], identity["type"]]
+        base = f"FROM events e WHERE e.deleted=0 AND e.habit_id=? AND e.type=? {exact_filter}"
+        params = [habit_id, identity["type"], *identity_params]
+        daily_rows = connection.execute(
+            f"""SELECT tickstone_day, COUNT(*) AS sessions,
+                       SUM(CASE WHEN e.type='count' THEN e.count ELSE e.duration_seconds END) AS value
+                  {base} AND tickstone_day>=? AND tickstone_day<? GROUP BY tickstone_day ORDER BY tickstone_day""",
+            (*params, start.isoformat(), end.isoformat())).fetchall()
+        previous_value = connection.execute(
+            f"""SELECT COALESCE(SUM(CASE WHEN e.type='count' THEN e.count ELSE e.duration_seconds END),0)
+                  {base} AND tickstone_day>=? AND tickstone_day<?""",
+            (*params, previous[0].isoformat(), previous[1].isoformat())).fetchone()[0]
+        all_days = [row[0] for row in connection.execute(
+            f"SELECT DISTINCT tickstone_day {base} ORDER BY tickstone_day", params).fetchall()]
+        metadata_status = _metadata_status(connection)
+    total = sum(row["value"] for row in daily_rows)
+    sessions = sum(row["sessions"] for row in daily_rows)
+    active_days = len(daily_rows)
+    current_streak, longest_streak = _longest_streak(all_days, today)
+    trend = None if previous_value == 0 else round((total - previous_value) / previous_value * 100)
+    best = max(daily_rows, key=lambda row: row["value"], default=None)
+    values_by_day = {row["tickstone_day"]: row["value"] for row in daily_rows}
+    if period in ("week", "month"):
+        labels = []
+        cursor = start
+        while cursor < end:
+            labels.append(cursor.isoformat()); cursor += timedelta(days=1)
+        grouped = [(label, values_by_day.get(label, 0)) for label in labels]
+    else:
+        monthly = {}
+        for label, value in values_by_day.items():
+            monthly[label[:7]] = monthly.get(label[:7], 0) + value
+        if period == "year":
+            grouped = [(f"{today.year}-{month:02d}", monthly.get(f"{today.year}-{month:02d}", 0))
+                       for month in range(1, 13)]
+        else:
+            grouped = sorted(monthly.items())
+    peak = max((value for _, value in grouped), default=1) or 1
+    points = [{"label": label, "value": value,
+               "height": 0 if value == 0 else max(5, round(value / peak * 100))}
+              for label, value in grouped]
+    best_period = max(grouped, key=lambda item: item[1], default=(None, 0))
+    display, unit = _format_value(total, identity["type"])
+    average, average_unit = _format_value(round(total / active_days) if active_days else 0, identity["type"])
+    return {"generated_at": f"{now:%Y-%m-%d %H:%M}", "habit": identity, "period": period,
+            "period_start": start.isoformat(), "period_end": (end - timedelta(days=1)).isoformat(),
+            "metadata_status": metadata_status, "total": total, "display_value": display,
+            "display_unit": unit, "sessions": sessions, "active_days": active_days,
+            "average_value": average, "average_unit": average_unit, "current_streak": current_streak,
+            "longest_streak": longest_streak, "previous_total": previous_value, "trend": trend,
+            "best_day": best["tickstone_day"] if best else None,
+            "best_value": best["value"] if best else 0, "best_period": best_period[0],
+            "points": points}
+
+
+def _metadata_note(status):
+    if status == "synced":
+        return "Habitmetadata synkas automatiskt via Bluetooth."
+    if status == "mixed":
+        return "Ny metadata är verifierad. Äldre importerade events visas som osäker fallback."
+    return "Legacy-läge: events saknar säker historisk habitmetadata."
 
 
 def render_dashboard(model):
     summary = model["summary"]
-    cards = (
-        ("Idag", summary["today"], "aktiviteter"),
-        ("Den här veckan", summary["week"], "aktiviteter"),
-        ("Fokustid", summary["minutes"], "minuter"),
-        ("Följd", summary["streak"], "dagar"),
-    )
-    cards_html = "".join(
-        f'<article class="metric"><span>{html.escape(label)}</span><strong>{value}</strong><small>{unit}</small></article>'
-        for label, value, unit in cards
-    )
-    days_html = "".join(
-        f'<div class="day{" is-today" if day.get("today") else ""}" aria-label="{day.get("date", day["label"])}: {day["value"]} aktiviteter">'
-        f'<div class="bar-track"><div class="bar" style="--height:{day["height"]}%"></div></div>'
-        f'<span>{html.escape(day["label"])}</span></div>' for day in model["days"]
-    )
-    if model["habits"]:
-        habits_html = "".join(
-            '<li class="habit-row"><div class="habit-mark" aria-hidden="true"></div><div class="habit-copy">'
-            f'<strong>{html.escape(item["name"].title())}</strong><span>{html.escape(item["code"])}</span></div>'
-            f'<div class="habit-value"><strong>{item["display_value"]}</strong>'
-            f'<span>{item["display_unit"]}</span></div></li>'
-            for item in model["habits"]
-        )
-    else:
-        habits_html = '<li class="empty">Dina habits visas här efter första synken.</li>'
-    if model["recent"]:
-        recent_html = "".join(
-            '<li class="recent-row"><div><strong>' + html.escape(item["name"].title()) + '</strong>'
-            f'<span>{html.escape(item["kind"])}</span></div><time>{html.escape(item["when"])}</time></li>'
-            for item in model["recent"]
-        )
-    else:
-        recent_html = '<li class="empty">Ingen aktivitet ännu. Logga något på TickStone.</li>'
+    cards = (("Idag", summary["today"], "aktiviteter"), ("Den här veckan", summary["week"], "aktiviteter"),
+             ("Fokustid", summary["minutes"], "minuter"), ("Följd", summary["streak"], "dagar"))
+    cards_html = "".join(f'<article class="metric"><span>{html.escape(label)}</span><strong>{value}</strong><small>{unit}</small></article>' for label, value, unit in cards)
+    days_html = "".join(f'<div class="day{" is-today" if day.get("today") else ""}" aria-label="{day.get("date",day["label"])}: {day["value"]} aktiviteter"><div class="bar-track"><div class="bar" style="--height:{day["height"]}%"></div></div><span>{day["label"]}</span></div>' for day in model["days"])
+    habits_html = "".join(
+        f'<li><a class="habit-row" href="/habit/{item["id"]}?period=week"><span class="habit-mark" aria-hidden="true"></span><span class="habit-copy"><strong>{html.escape(item["name"].title())}</strong><small>{html.escape(item["code"])}</small></span><span class="habit-value"><strong>{html.escape(str(item["display_value"]))}</strong><small>{html.escape(item["display_unit"])}</small></span><span class="row-arrow" aria-hidden="true">›</span></a></li>' for item in model["habits"]
+    ) or '<li class="empty">Dina habits visas här efter första synken.</li>'
+    recent_html = "".join(f'<li class="recent-row"><div><strong>{html.escape(item["name"].title())}</strong><span>{html.escape(item["kind"])}</span></div><time>{html.escape(item["when"])}</time></li>' for item in model["recent"]) or '<li class="empty">Ingen aktivitet ännu.</li>'
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f4f2ed"><title>TickStone</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js" defer></script></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><main id="content" class="shell"><header class="topbar"><div class="brand"><span class="brand-stone" aria-hidden="true"></span><div><strong>TickStone</strong><span>Din rytm, samlad.</span></div></div><div class="sync-state"><span aria-hidden="true"></span>Synkad <time id="updated">{html.escape(model["generated_at"])}</time></div></header><section class="intro"><p class="eyebrow">ÖVERSIKT</p><h1>Små steg.<br><em>Synliga framsteg.</em></h1><p class="metadata-note">{html.escape(_metadata_note(model["metadata_status"]))}</p></section><section class="metrics" aria-label="Sammanfattning">{cards_html}</section><div class="dashboard-grid"><section class="panel activity-panel"><div class="panel-heading"><div><p class="eyebrow">SENASTE 7 DAGARNA</p><h2>Aktivitet</h2></div><span>{summary["week"]} totalt</span></div><div class="chart" role="img" aria-label="Aktiviteter per dag">{days_html}</div></section><section class="panel habits-panel"><div class="panel-heading"><div><p class="eyebrow">ALLA HABITS</p><h2>Vanor</h2></div></div><ul class="habit-list">{habits_html}</ul></section><section class="panel recent-panel"><div class="panel-heading"><div><p class="eyebrow">HISTORIK</p><h2>Senaste aktivitet</h2></div></div><ul class="recent-list">{recent_html}</ul></section></div><footer><span>TickStone</span><span>Data stannar på din Pi.</span></footer></main></body></html>'''
 
-    return f"""<!doctype html>
-<html lang="sv">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <meta name="color-scheme" content="light">
-  <meta name="theme-color" content="#f4f2ed">
-  <title>TickStone</title>
-  <link rel="stylesheet" href="/assets/styles.css">
-  <script src="/assets/app.js" defer></script>
-</head>
-<body>
-  <a class="skip-link" href="#content">Hoppa till innehåll</a>
-  <main id="content" class="shell">
-    <header class="topbar">
-      <div class="brand"><span class="brand-stone" aria-hidden="true"></span><div><strong>TickStone</strong><span>Din rytm, samlad.</span></div></div>
-      <div class="sync-state" aria-label="Synkstatus"><span aria-hidden="true"></span>Synkad <time id="updated">{html.escape(model["generated_at"])}</time></div>
-    </header>
 
-    <section class="intro" aria-labelledby="overview-title">
-      <p class="eyebrow">ÖVERSIKT</p>
-      <h1 id="overview-title">Små steg.<br><em>Synliga framsteg.</em></h1>
-    </section>
-
-    <section class="metrics" aria-label="Sammanfattning">{cards_html}</section>
-
-    <div class="dashboard-grid">
-      <section class="panel activity-panel" aria-labelledby="activity-title">
-        <div class="panel-heading"><div><p class="eyebrow">SENASTE 7 DAGARNA</p><h2 id="activity-title">Aktivitet</h2></div><span>{summary["week"]} totalt</span></div>
-        <div class="chart" role="img" aria-label="Aktiviteter per dag">{days_html}</div>
-      </section>
-
-      <section class="panel habits-panel" aria-labelledby="habits-title">
-        <div class="panel-heading"><div><p class="eyebrow">ALLA HABITS</p><h2 id="habits-title">Vanor</h2></div></div>
-        <ul class="habit-list">{habits_html}</ul>
-      </section>
-
-      <section class="panel recent-panel" aria-labelledby="recent-title">
-        <div class="panel-heading"><div><p class="eyebrow">HISTORIK</p><h2 id="recent-title">Senaste aktivitet</h2></div></div>
-        <ul class="recent-list">{recent_html}</ul>
-      </section>
-    </div>
-    <footer><span>TickStone</span><span>Data stannar på din Pi.</span></footer>
-  </main>
-</body>
-</html>"""
+def render_habit_detail(model):
+    habit = model["habit"]
+    tabs = "".join(f'<a href="/habit/{habit["id"]}?period={period}" class="period-tab{" selected" if model["period"] == period else ""}"{" aria-current=page" if model["period"] == period else ""}>{label}</a>' for period, label in (("week","Vecka"),("month","Månad"),("year","År"),("all","Allt")))
+    trend = "Ingen jämförelse ännu" if model["trend"] is None else f'{model["trend"]:+d}% mot föregående period'
+    points = "".join(f'<div class="detail-point" aria-label="{html.escape(point["label"])}: {point["value"]}"><div style="--height:{point["height"]}%"></div><span>{html.escape(point["label"][-5:])}</span></div>' for point in model["points"])
+    if not points:
+        points = '<p class="empty">Ingen aktivitet under perioden.</p>'
+    metrics = (("Totalt", model["display_value"], model["display_unit"]), ("Aktiva dagar", model["active_days"], "dagar"),
+               ("Snitt", model["average_value"], model["average_unit"]), ("Längsta följd", model["longest_streak"], "dagar"))
+    metric_html = "".join(f'<article class="metric"><span>{label}</span><strong>{html.escape(str(value))}</strong><small>{html.escape(unit)}</small></article>' for label,value,unit in metrics)
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(habit["name"])} · TickStone</title><link rel="stylesheet" href="/assets/styles.css"></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><main id="content" class="shell"><header class="topbar"><a class="back-link" href="/">← Översikt</a><div class="brand"><strong>TickStone</strong></div></header><section class="detail-intro"><p class="eyebrow">{html.escape(habit["code"])}</p><h1>{html.escape(habit["name"].title())}</h1><p>{html.escape(model["period_start"])} – {html.escape(model["period_end"])}</p></section><nav class="period-tabs" aria-label="Period">{tabs}</nav><section class="metrics detail-metrics" aria-label="Habitstatistik">{metric_html}</section><section class="panel detail-chart"><div class="panel-heading"><div><p class="eyebrow">UTVECKLING</p><h2>Aktivitet</h2></div><span>{html.escape(trend)}</span></div><div class="detail-points" role="img" aria-label="Aktivitet per kalenderperiod">{points}</div><div class="detail-facts"><span>{model["sessions"]} aktivitetstillfällen</span><span>Nuvarande följd: {model["current_streak"]} dagar</span><span>Bästa period: {html.escape(model["best_period"] or "—")}</span></div></section><p class="metadata-note">{html.escape(_metadata_note(model["metadata_status"]))}</p></main></body></html>'''
 
 
 class DashboardServer(ThreadingHTTPServer):
@@ -221,56 +296,56 @@ def make_handler(database):
     database = Path(database)
 
     class Handler(BaseHTTPRequestHandler):
-        server_version = "TickStoneDashboard/1"
+        server_version = "TickStoneDashboard"
+        sys_version = ""
+
+        def version_string(self):
+            return self.server_version
 
         def log_message(self, format, *args):
             return
 
         def _send(self, status, content_type, body=b"", head=False, extra_headers=None):
             self.send_response(status)
-            self.send_header("Content-Type", content_type)
-            self.send_header("Content-Length", str(len(body)))
-            self.send_header("Cache-Control", "no-store")
-            self.send_header("X-Content-Type-Options", "nosniff")
-            self.send_header("X-Frame-Options", "DENY")
-            self.send_header("Referrer-Policy", "no-referrer")
-            self.send_header("Permissions-Policy", "camera=(), microphone=(), geolocation=()")
-            self.send_header("Content-Security-Policy", "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'")
-            for key, value in (extra_headers or {}).items():
-                self.send_header(key, value)
+            headers = {"Content-Type": content_type, "Content-Length": str(len(body)), "Cache-Control": "no-store",
+                       "X-Content-Type-Options": "nosniff", "X-Frame-Options": "DENY", "Referrer-Policy": "no-referrer",
+                       "Permissions-Policy": "camera=(), microphone=(), geolocation=()",
+                       "Content-Security-Policy": "default-src 'self'; style-src 'self' 'unsafe-inline'; script-src 'self'; img-src 'self'; connect-src 'self'; frame-ancestors 'none'; base-uri 'none'; form-action 'none'"}
+            headers.update(extra_headers or {})
+            for key, value in headers.items(): self.send_header(key, value)
             self.end_headers()
-            if not head:
-                self.wfile.write(body)
+            if not head: self.wfile.write(body)
 
         def _route(self, head=False):
-            path = urlsplit(self.path).path
-            if path == "/":
-                body = render_dashboard(build_dashboard(database)).encode()
-                self._send(200, "text/html; charset=utf-8", body, head)
-            elif path == "/healthz":
-                try:
-                    with _readonly_connection(database) as connection:
-                        connection.execute("SELECT 1").fetchone()
-                    body = b'{"status":"ok"}\n'
-                    self._send(200, "application/json; charset=utf-8", body, head)
-                except sqlite3.Error:
-                    self._send(503, "application/json; charset=utf-8", b'{"status":"error"}\n', head)
-            elif path in ("/assets/styles.css", "/assets/app.js"):
-                name = path.rsplit("/", 1)[1]
-                content_type = "text/css; charset=utf-8" if name.endswith(".css") else "text/javascript; charset=utf-8"
-                self._send(200, content_type, (WEB_ROOT / name).read_bytes(), head)
-            else:
-                self._send(404, "text/plain; charset=utf-8", b"Not found\n", head)
+            parsed = urlsplit(self.path); path = parsed.path
+            try:
+                if path == "/":
+                    self._send(200, "text/html; charset=utf-8", render_dashboard(build_dashboard(database)).encode(), head)
+                elif re.fullmatch(r"/habit/[0-9]", path):
+                    period = parse_qs(parsed.query).get("period", ["week"])[0]
+                    if period not in PERIODS:
+                        self._send(400, "text/plain; charset=utf-8", b"Invalid period\n", head); return
+                    model = build_habit_detail(database, int(path[-1]), period)
+                    if model is None:
+                        self._send(404, "text/plain; charset=utf-8", b"Not found\n", head)
+                    else:
+                        self._send(200, "text/html; charset=utf-8", render_habit_detail(model).encode(), head)
+                elif path == "/healthz":
+                    with _readonly_connection(database) as connection: connection.execute("SELECT 1").fetchone()
+                    self._send(200, "application/json; charset=utf-8", b'{"status":"ok"}\n', head)
+                elif path in ("/assets/styles.css", "/assets/app.js"):
+                    name = path.rsplit("/", 1)[1]
+                    kind = "text/css; charset=utf-8" if name.endswith(".css") else "text/javascript; charset=utf-8"
+                    self._send(200, kind, (WEB_ROOT / name).read_bytes(), head)
+                else:
+                    self._send(404, "text/plain; charset=utf-8", b"Not found\n", head)
+            except sqlite3.Error:
+                self._send(503, "text/plain; charset=utf-8", b"Database unavailable\n", head)
 
-        def do_GET(self):
-            self._route()
-
-        def do_HEAD(self):
-            self._route(head=True)
-
+        def do_GET(self): self._route()
+        def do_HEAD(self): self._route(head=True)
         def _method_not_allowed(self):
             self._send(405, "text/plain; charset=utf-8", b"Method not allowed\n", extra_headers={"Allow": "GET, HEAD"})
-
         do_POST = do_PUT = do_PATCH = do_DELETE = _method_not_allowed
 
     return Handler
@@ -279,18 +354,12 @@ def make_handler(database):
 def main():
     parser = argparse.ArgumentParser(description="TickStone lokal statistikdashboard")
     parser.add_argument("--database", type=Path, default=Path.home() / ".local/share/tickstone/tickstone.sqlite3")
-    parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8750)
-    args = parser.parse_args()
-    server = DashboardServer((args.host, args.port), make_handler(args.database.expanduser()))
+    parser.add_argument("--host", default="127.0.0.1"); parser.add_argument("--port", type=int, default=8750)
+    args = parser.parse_args(); server = DashboardServer((args.host, args.port), make_handler(args.database.expanduser()))
     print(f"TickStone dashboard: http://{args.host}:{server.server_port}", flush=True)
-    try:
-        server.serve_forever()
-    except KeyboardInterrupt:
-        pass
-    finally:
-        server.server_close()
+    try: server.serve_forever()
+    except KeyboardInterrupt: pass
+    finally: server.server_close()
 
 
-if __name__ == "__main__":
-    main()
+if __name__ == "__main__": main()
