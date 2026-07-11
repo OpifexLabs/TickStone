@@ -1,0 +1,11 @@
+[Unit]
+Description=Daily TickStone history backup
+
+[Timer]
+OnCalendar=*-*-* 03:17:00
+Persistent=true
+RandomizedDelaySec=15m
+Unit=tickstone-backup.service
+
+[Install]
+WantedBy=timers.target

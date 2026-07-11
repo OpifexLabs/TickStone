@@ -1,0 +1,17 @@
+[Unit]
+Description=Back up TickStone history without overwriting prior backups
+After=tickstone-sync.service
+
+[Service]
+Type=oneshot
+User=allangamal
+WorkingDirectory=/home/allangamal/TickStone
+Environment=HOME=/home/allangamal
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/allangamal/TickStone/.venv/bin/python /home/allangamal/TickStone/tools/tickstone_store.py --data-dir /home/allangamal/.local/share/tickstone backup
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/allangamal/.local/share/tickstone

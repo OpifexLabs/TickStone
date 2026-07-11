@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 import argparse
 import asyncio
-import json
 import struct
 import time
 from pathlib import Path
+
+from tickstone_store import IngestResult, append_raw_once, ingest_event
 
 try:
     from bleak import BleakClient, BleakScanner
@@ -35,20 +36,13 @@ def decode(packet):
     }
 
 
-def append_once(path, log):
-    known = set()
-    if path.exists():
-        for line in path.read_text().splitlines():
-            try:
-                known.add(json.loads(line)["id"])
-            except (ValueError, KeyError):
-                pass
-    if log["id"] not in known:
-        with path.open("a") as output:
-            output.write(json.dumps(log, separators=(",", ":")) + "\n")
+def persist_event(path, log, database=None):
+    if database is not None:
+        return ingest_event(path, database, log)
+    return IngestResult(append_raw_once(path, log), False)
 
 
-async def sync(output, attempts=3):
+async def sync(output, database=None, attempts=3):
     device = None
     for attempt in range(attempts):
         device = await BleakScanner.find_device_by_filter(
@@ -72,7 +66,7 @@ async def sync(output, attempts=3):
             log = decode(bytes(await client.read_gatt_char(DATA_UUID)))
             if log is None:
                 break
-            append_once(output, log)
+            persist_event(output, log, database)
             await client.write_gatt_char(CONTROL_UUID, b"\x02" + struct.pack("<Q", log["id"]), response=True)
             synced += 1
             await asyncio.sleep(0.35)
@@ -80,11 +74,11 @@ async def sync(output, attempts=3):
     return True
 
 
-async def watch(output):
+async def watch(output, database=None):
     print("Vantar pa TickStone. Avsluta med Ctrl+C.")
     while True:
         try:
-            if await sync(output, attempts=1):
+            if await sync(output, database, attempts=1):
                 await asyncio.sleep(5)
         except (BleakError, TimeoutError, OSError, ValueError) as error:
             print(f"Synk misslyckades, forsoker igen: {error}")
@@ -94,15 +88,17 @@ async def watch(output):
 def main():
     parser = argparse.ArgumentParser(description="Synka TickStone-loggar via Bluetooth LE")
     parser.add_argument("--output", type=Path, default=Path.home() / "tickstone-logs.jsonl")
+    parser.add_argument("--database", type=Path, help="SQLite-databas for strukturerad historik")
     parser.add_argument("--watch", action="store_true", help="vanta kontinuerligt pa nya loggar")
     args = parser.parse_args()
     output = args.output.expanduser()
+    database = args.database.expanduser() if args.database else None
     if args.watch:
         try:
-            asyncio.run(watch(output))
+            asyncio.run(watch(output, database))
         except KeyboardInterrupt:
             pass
-    elif not asyncio.run(sync(output)):
+    elif not asyncio.run(sync(output, database)):
         raise SystemExit("Hittade ingen TickStone via Bluetooth")
 
 

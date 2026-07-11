@@ -1,0 +1,24 @@
+[Unit]
+Description=TickStone Bluetooth history sync
+Requires=bluetooth.service
+After=bluetooth.service
+
+[Service]
+Type=simple
+User=allangamal
+WorkingDirectory=/home/allangamal/TickStone
+Environment=HOME=/home/allangamal
+Environment=PYTHONUNBUFFERED=1
+Environment=PYTHONDONTWRITEBYTECODE=1
+ExecStart=/home/allangamal/TickStone/.venv/bin/python /home/allangamal/TickStone/tools/tickstone_ble_sync.py --watch --output /home/allangamal/.local/share/tickstone/logs.jsonl --database /home/allangamal/.local/share/tickstone/tickstone.sqlite3
+Restart=always
+RestartSec=5
+UMask=0077
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=full
+ProtectHome=read-only
+ReadWritePaths=/home/allangamal/.local/share/tickstone
+
+[Install]
+WantedBy=multi-user.target

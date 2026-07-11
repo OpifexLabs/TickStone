@@ -2,3 +2,6 @@ build/
 build_selftest/
 sdkconfig.old
 *.dSYM/
+.venv/
+__pycache__/
+*.py[cod]
