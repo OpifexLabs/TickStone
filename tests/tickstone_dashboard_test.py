@@ -6,6 +6,7 @@ import sys
 import tempfile
 import threading
 import unittest
+from unittest.mock import patch
 from datetime import datetime
 from pathlib import Path
 from urllib.request import urlopen
@@ -20,6 +21,7 @@ from tools.tickstone_dashboard import (  # noqa: E402
     build_dashboard,
     build_habit_detail,
     build_statistics_overview,
+    build_time_chart,
     build_overview_comparisons,
     build_timeline,
     make_handler,
@@ -121,6 +123,28 @@ class DashboardDataTest(unittest.TestCase):
         habit = next(item for item in model["habits"] if item["id"] == 2)
         self.assertEqual((habit["display_value"], habit["display_unit"]), (5, "sekunder"))
 
+    def test_dashboard_closes_every_read_only_connection(self):
+        created = []
+        original_connect = sqlite3.connect
+
+        class TrackingConnection(sqlite3.Connection):
+            was_closed = False
+            def close(self):
+                self.was_closed = True
+                super().close()
+
+        def tracked_connect(*args, **kwargs):
+            kwargs["factory"] = TrackingConnection
+            connection = original_connect(*args, **kwargs)
+            created.append(connection)
+            return connection
+
+        with patch("tools.tickstone_dashboard.sqlite3.connect", side_effect=tracked_connect):
+            build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+            build_time_chart(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+        self.assertTrue(created)
+        self.assertTrue(all(connection.was_closed for connection in created))
+
     def test_dashboard_connection_is_read_only(self):
         build_dashboard(self.database, self.epoch("2026-07-12T12:00:00"))
         before = self.database.stat().st_mtime_ns
@@ -194,6 +218,22 @@ class DashboardDataTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             build_timeline(self.database, "decade", self.epoch("2026-07-12T12:00:00"))
 
+    def test_time_chart_uses_real_seconds_and_ignores_count_habits(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
+        self.add_habit(2, "STA", "STÄDA", "time", default_minutes=10)
+        self.add(101, 0, "count", "2026-07-11T08:00:00", count=1)
+        self.add(102, 1, "time", "2026-07-11T09:00:00", duration=5)
+        self.add(103, 2, "time", "2026-07-11T10:00:00", duration=3)
+
+        chart = build_time_chart(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+
+        self.assertEqual(chart["unit"], "seconds")
+        self.assertEqual(len(chart["labels"]), 7)
+        self.assertEqual([series["id"] for series in chart["series"]], [1, 2])
+        self.assertEqual(next(series for series in chart["series"] if series["id"] == 1)["values"], [0, 0, 0, 0, 0, 5, 0])
+        self.assertEqual(next(series for series in chart["series"] if series["id"] == 2)["values"], [0, 0, 0, 0, 0, 3, 0])
+        self.assertEqual(chart["total_seconds"], 8)
+
     def test_month_comparison_reports_new_activity_without_fake_infinity(self):
         self.add(60, 0, "count", "2026-07-12T08:00:00", count=1)
         comparison = build_overview_comparisons(self.database, self.epoch("2026-07-12T12:00:00"))["month"]
@@ -253,13 +293,16 @@ class DashboardDataTest(unittest.TestCase):
         singular_rendered = render_statistics_dashboard(model)
         self.assertIn("1 dags streak", singular_rendered)
         self.assertNotIn("1 dagars streak", singular_rendered)
-        for marker in ('class="app-sidebar"', 'Din statistik', 'Veckans aktivitet', 'Dina vanor',
-                       'Aktivitet senaste 12 veckorna', 'Insikter', 'period-switcher', 'habit-performance'):
+        for marker in ('class="workspace-brand"', 'Din statistik', 'Tidsaktivitet', 'Dina vanor',
+                       'Aktivitet senaste 12 veckorna', 'Insikter', 'period-switcher', 'habit-performance',
+                       'id="time-chart"', 'data-chart-type="bar"', 'data-chart-type="line"',
+                       'aria-label="Välj tidsbaserade vanor"'):
             self.assertIn(marker, rendered)
+        self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('href="/?period=month&amp;offset=0"', rendered)
         self.assertIn('aria-label="Föregående period"', rendered)
         self.assertIn('<strong>Ny</strong><span>aktivitet den här veckan</span>', rendered)
-        self.assertLess(rendered.index('class="stack-count"'), rendered.index('class="stack-time"'))
+        self.assertNotIn('class="stack-count"', rendered)
         self.assertNotIn("https://", rendered)
 
     def test_reference_overview_supports_month_year_all_and_rejects_future_offsets(self):
@@ -312,6 +355,8 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn(":focus-visible", css)
         self.assertIn("overflow-x: hidden", css)
         self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
+        self.assertIn("grid-template-columns: repeat(12,minmax(0,1fr))", css)
+        self.assertIn("--paper: #f4f2ed", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
         self.assertIn("Math.min(4, maximum)", script)
         self.assertIn("tickCount", script)
@@ -330,7 +375,8 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn('/habit/0?period=month', rendered)
         self.assertIn('aria-current=page', rendered)
         self.assertIn('class="statistics-app"', rendered)
-        self.assertIn('class="app-sidebar"', rendered)
+        self.assertNotIn('class="app-sidebar"', rendered)
+        self.assertIn('class="workspace-brand"', rendered)
         self.assertIn('detail-workspace', rendered)
 
 
@@ -393,6 +439,18 @@ class DashboardHttpTest(unittest.TestCase):
         self.assertEqual(self.request("GET", "/?period=decade")[0], 400)
         self.assertEqual(self.request("GET", "/?period=week&offset=1")[0], 400)
         self.assertEqual(self.request("GET", "/?period=week&offset=not-a-number")[0], 400)
+        self.assertEqual((self.database.stat().st_mtime_ns, self.database.stat().st_size), before)
+
+    def test_time_chart_api_is_bounded_read_only_and_ignores_count_series(self):
+        before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)
+        status, headers, body = self.request("GET", "/api/time-chart?period=week&offset=0")
+        self.assertEqual(status, 200)
+        self.assertEqual(headers["Content-Type"], "application/json; charset=utf-8")
+        payload = json.loads(body)
+        self.assertEqual(payload["unit"], "seconds")
+        self.assertEqual(payload["series"], [])
+        self.assertEqual(self.request("GET", "/api/time-chart?period=week&offset=1")[0], 400)
+        self.assertEqual(self.request("GET", "/api/time-chart?period=decade&offset=0")[0], 400)
         self.assertEqual((self.database.stat().st_mtime_ns, self.database.stat().st_size), before)
 
     def test_timeline_api_is_bounded_json_and_read_only(self):

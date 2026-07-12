@@ -126,8 +126,10 @@ aktivitetstillfallen, medan habitdetaljer fortsatter anvanda habitens riktiga en
 
 Huvudvyn ar en periodstyrd statistikarbetsyta med `period=week|month|year|all` och
 bakatriktad `offset`. Den visar aktiva dagar, malnormaliserad genomforandegrad, total tid,
-kalenderjamforelse, staplad count/time-aktivitet, klickbara habitresultat, 12-veckors heatmap
-och datagrundade insikter. Count-habits har dagsmal 1; time-habits anvander firmwarets
+kalenderjamforelse, faktisk tidsaktivitet per vald time-habit, klickbara habitresultat,
+12-veckors heatmap och datagrundade insikter. Tidsgrafen kan visas som staplar eller linjer;
+valda habits och diagramtyp sparas i `sessionStorage`. Count-events visas inte i grafen.
+Count-habits har dagsmal 1; time-habits anvander firmwarets
 `default_minutes`. Daglig uppfyllelse kapas vid 100 procent sa att en extrem dag inte kan
 dolja missade dagar. Framtida offset avvisas och senare-pilen ar inaktiv i aktuell period.
 Habitdetaljerna anvander samma navigationsskal och visuella system som oversikten.
