@@ -283,6 +283,14 @@ def _streak_label(days):
     return "1 dags streak" if days == 1 else f"{days} dagars streak"
 
 
+def _compact_comparison_label(label):
+    if label.startswith("Ny aktivitet"):
+        return "Ny"
+    if label.startswith("Samma nivå"):
+        return "Samma"
+    return label.split(" jämfört", 1)[0]
+
+
 def _period_comparison(current, previous, period):
     if period == "all":
         return {"current": current, "previous": previous, "percent": None, "tone": "flat",
@@ -730,7 +738,7 @@ def _render_statistics_dashboard_legacy(model):
         f'<strong>{html.escape(habit["name"].title())}</strong><span class="habit-type">{html.escape(habit["type_label"])}</span>'
         f'<span class="habit-progress"><b>{html.escape(habit["display_value"])}</b><i><u style="--progress:{min(100, habit["progress_percent"])}"></u></i></span>'
         f'<span class="habit-streak">{_streak_label(habit["current_streak"])}</span>'
-        f'<span class="habit-compare compare-{habit["comparison"]["tone"]}">{html.escape(habit["comparison"]["label"].split(" jämfört")[0])}</span><span class="chevron">›</span></a>'
+        f'<span class="habit-compare compare-{habit["comparison"]["tone"]}" title="{html.escape(habit["comparison"]["label"])}">{html.escape(_compact_comparison_label(habit["comparison"]["label"]))}</span><span class="chevron">›</span></a>'
         for habit in model["habits"]
     ) or '<p class="empty-state">Dina habits visas här efter första synken.</p>'
     heat_cells = "".join(
@@ -771,7 +779,7 @@ def render_statistics_dashboard(model):
                  ("clock", _duration_compact(kpis["total_seconds"]), "total tid", "i tidsbaserade vanor", ""),
                  ("trend", trend_value, trend_label, comparison["delta"], ""))
     cards_html = "".join(f'<article class="stat-card"><div class="stat-icon stat-icon-{kind}">{_stat_icon(kind)}</div><div class="stat-copy"><strong>{html.escape(value)}</strong><span>{html.escape(label)}</span><small>{html.escape(detail)}</small></div>{f"<b>{html.escape(badge)}</b>" if badge else ""}</article>' for kind,value,label,detail,badge in kpi_cards)
-    habit_rows = "".join(f'<a class="habit-performance" href="/habit/{habit["id"]}?period={model["period"]}"><span class="habit-symbol" style="--habit-color:{habit["color"]}">{html.escape((habit["code"] or habit["name"][:1]).upper())}</span><strong>{html.escape(habit["name"].title())}</strong><span class="habit-type">{html.escape(habit["type_label"])}</span><span class="habit-progress"><b>{html.escape(habit["display_value"])}</b><i><u style="--progress:{min(100,habit["progress_percent"])}"></u></i></span><span class="habit-streak">{_streak_label(habit["current_streak"])}</span><span class="habit-compare compare-{habit["comparison"]["tone"]}">{html.escape(habit["comparison"]["label"].split(" jämfört")[0])}</span><span class="chevron">›</span></a>' for habit in model["habits"]) or '<p class="empty-state">Dina habits visas här efter första synken.</p>'
+    habit_rows = "".join(f'<a class="habit-performance" href="/habit/{habit["id"]}?period={model["period"]}"><span class="habit-symbol" style="--habit-color:{habit["color"]}">{html.escape((habit["code"] or habit["name"][:1]).upper())}</span><strong>{html.escape(habit["name"].title())}</strong><span class="habit-type">{html.escape(habit["type_label"])}</span><span class="habit-progress"><b>{html.escape(habit["display_value"])}</b><i><u style="--progress:{min(100,habit["progress_percent"])}"></u></i></span><span class="habit-streak">{_streak_label(habit["current_streak"])}</span><span class="habit-compare compare-{habit["comparison"]["tone"]}" title="{html.escape(habit["comparison"]["label"])}">{html.escape(_compact_comparison_label(habit["comparison"]["label"]))}</span><span class="chevron">›</span></a>' for habit in model["habits"]) or '<p class="empty-state">Dina habits visas här efter första synken.</p>'
     time_toggles = "".join(f'<label class="time-series-toggle"><input type="checkbox" data-series-id="{habit["id"]}" checked><i style="--series-color:{habit["color"]}"></i>{html.escape(habit["name"].title())}</label>' for habit in model["habits"] if habit["type_label"] == "Tid") or '<span class="empty-series">Inga tidsbaserade vanor ännu.</span>'
     heat_cells = "".join(f'<span class="heat-cell level-{cell["level"]}{" future" if cell["future"] else ""}" title="{cell["date"]}: {cell["value"]} aktiviteter" aria-label="{cell["date"]}: {cell["value"]} aktiviteter"></span>' for cell in model["heatmap"]["cells"])
     heat_start = date.fromisoformat(model["heatmap"]["start"])
