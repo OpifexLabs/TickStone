@@ -360,6 +360,7 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("--heat-row: 13px", css)
         self.assertGreaterEqual(css.count("grid-template-rows: repeat(7,var(--heat-row))"), 2)
         self.assertIn("min-height: 72px", css)
+        self.assertIn(".time-activity-card .chart-loading { min-height: 162px", css)
         self.assertIn("@media (min-width: 761px)", css)
         self.assertIn("grid-template-columns: repeat(4,minmax(0,1fr))", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()

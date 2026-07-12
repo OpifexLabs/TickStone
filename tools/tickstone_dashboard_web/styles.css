@@ -440,6 +440,7 @@ footer { display: flex; justify-content: space-between; padding: 30px 2px 0; col
   .statistics-app .time-series-toggle { padding: 4px 7px; font-size: 9px; }
   .statistics-app .chart-type-switch button { min-height: 27px; padding: 0 9px; font-size: 9px; }
   .statistics-app #time-chart { min-height: 162px; margin: 0 8px; }
+  .statistics-app .time-activity-card .chart-loading { min-height: 162px; font-size: 14px; }
   .statistics-app #time-chart svg { height: 162px; }
   .statistics-app .time-activity-card .chart-caption { margin: 2px 12px 8px; font-size: 8px; }
   .statistics-app .habit-columns { padding: 0 12px 5px; font-size: 8px; }
