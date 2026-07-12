@@ -89,6 +89,23 @@ class DashboardDataTest(unittest.TestCase):
                 "VALUES(?,?,?,?,?,?,1)", (snapshot, slot, code, name, kind, default_minutes),
             )
 
+    def change_habit(self, slot, code, name, kind, default_minutes=1, valid_from=None):
+        valid_from = valid_from or self.epoch("2026-07-01T00:00:00")
+        with open_store(self.database) as connection, connection:
+            connection.execute(
+                "INSERT INTO habit_snapshots(content_hash,recorded_at,protocol_version,device_hash,valid_from) VALUES(?,?,?,?,?)",
+                (f"snapshot-{slot}-{kind}-{valid_from}", "2026-07-01T00:00:00Z", 1, "12345678", valid_from),
+            )
+            snapshot = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+            connection.execute(
+                "INSERT INTO habit_snapshot_entries(snapshot_id,slot_id,code,name,type,default_minutes,active) VALUES(?,?,?,?,?,?,1)",
+                (snapshot, slot, code, name, kind, default_minutes),
+            )
+            connection.execute(
+                "UPDATE habits SET code=?,name=?,type=?,default_minutes=?,current_snapshot_id=? WHERE slot_id=?",
+                (code, name, kind, default_minutes, snapshot, slot),
+            )
+
     def test_empty_dashboard_has_stable_zero_state(self):
         model = build_dashboard(self.database, self.epoch("2026-07-12T12:00:00"))
 
@@ -389,8 +406,77 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(records["most_total_time_week"]["value"], 900)
         self.assertIn("longest_time_session", {item["kind"] for item in model["new_records"]})
         self.assertTrue(model["record_insight"]["text"].startswith("Nytt rekord:"))
-        self.assertEqual(model["milestone"]["remaining"], 180)
-        self.assertIn("3 min kvar till nytt personbästa", model["milestone"]["text"])
+        self.assertEqual(model["milestone"]["remaining"], 181)
+        self.assertIn("3 min 1 sek kvar till nytt personbästa", model["milestone"]["text"])
+
+    def test_intelligence_resets_baseline_when_slot_type_changes(self):
+        self.add(140, 0, "count", "2026-07-05T10:00:00", count=2)
+        self.change_habit(0, "MED", "MEDITATION", "time", default_minutes=10,
+                          valid_from=self.epoch("2026-07-06T05:00:00"))
+        self.add(141, 0, "time", "2026-07-12T10:00:00", duration=600)
+
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-12T12:00:00"))
+        habit = next(item for item in model["habit_comparisons"] if item["id"] == 0)
+        self.assertEqual(habit["week"], {"current": 600, "previous": 0, "percent": None,
+                                         "display": "Ny", "tone": "up"})
+        self.assertIsNone(model["milestone"])
+
+    def test_intelligence_resets_baseline_when_slot_identity_changes_with_same_type(self):
+        self.add(142, 0, "count", "2026-07-05T10:00:00", count=8)
+        self.change_habit(0, "RUN", "LOPNING", "count", valid_from=self.epoch("2026-07-06T05:00:00"))
+        self.add(143, 0, "count", "2026-07-12T10:00:00", count=3)
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-12T12:00:00"))
+        habit = next(item for item in model["habit_comparisons"] if item["id"] == 0)
+        self.assertEqual((habit["week"]["current"], habit["week"]["previous"], habit["week"]["display"]),
+                         (3, 0, "Ny"))
+
+    def test_future_events_are_excluded_consistently_from_overview(self):
+        self.add(150, 0, "count", "2026-07-12T15:00:00", count=3)
+        self.add(151, 0, "count", "2026-07-12T16:00:00", count=9, deleted=True)
+        model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+        habit = next(item for item in model["habits"] if item["id"] == 0)
+        self.assertEqual(habit["sessions"], 0)
+        self.assertEqual(habit["display_value"], "0 gånger")
+        self.assertEqual(model["kpis"]["active_days"], 0)
+        self.assertTrue(all(cell["value"] == 0 for cell in model["heatmap"]["cells"]))
+
+    def test_declining_week_uses_truthful_neutral_momentum(self):
+        self.add(160, 0, "count", "2026-06-29T08:00:00", count=1)
+        self.add(161, 0, "count", "2026-06-30T08:00:00", count=1)
+        self.add(162, 0, "count", "2026-07-01T08:00:00", count=1)
+        self.add(163, 0, "count", "2026-07-06T08:00:00", count=1)
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-08T12:00:00"))
+        self.assertEqual(model["momentum"]["label"], "Ingen positiv trend ännu")
+        self.assertIn("2 färre loggar", model["momentum"]["detail"])
+
+    def test_inactive_habits_do_not_drive_current_intelligence(self):
+        self.add(170, 0, "count", "2026-06-22T08:00:00", count=3)
+        self.add(171, 0, "count", "2026-07-06T08:00:00", count=4)
+        with open_store(self.database) as connection, connection:
+            connection.execute("UPDATE habits SET active=0 WHERE slot_id=0")
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-06T12:00:00"))
+        self.assertEqual(model["habit_comparisons"], [])
+        self.assertEqual(model["new_records"], [])
+        self.assertIsNone(model["record_insight"])
+        self.assertIsNone(model["milestone"])
+
+    def test_milestone_requires_beating_not_tying_previous_best(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
+        self.add(180, 1, "time", "2026-06-22T09:00:00", duration=900)
+        self.add(181, 1, "time", "2026-07-06T09:00:00", duration=720)
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-06T12:00:00"))
+        self.assertEqual(model["milestone"]["remaining"], 181)
+        self.assertIn("3 min 1 sek kvar", model["milestone"]["text"])
+
+    def test_noncurrent_views_do_not_mix_in_current_week_intelligence(self):
+        self.add(190, 0, "count", "2026-07-06T08:00:00", count=4)
+        previous_week = build_statistics_overview(self.database, "week", -1, self.epoch("2026-07-08T12:00:00"))
+        month = build_statistics_overview(self.database, "month", 0, self.epoch("2026-07-08T12:00:00"))
+        year = build_statistics_overview(self.database, "year", 0, self.epoch("2026-07-08T12:00:00"))
+        all_time = build_statistics_overview(self.database, "all", 0, self.epoch("2026-07-08T12:00:00"))
+        for model in (previous_week, month, year, all_time):
+            self.assertEqual(model["kpis"]["momentum"]["kind"], "selected-period")
+            self.assertFalse(any(item["kind"] in ("record", "milestone") for item in model["insights"]))
 
     def test_intelligence_requires_a_prior_baseline_before_announcing_record(self):
         self.add(130, 0, "count", "2026-07-06T08:00:00", count=1)

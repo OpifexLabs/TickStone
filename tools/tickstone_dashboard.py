@@ -169,9 +169,9 @@ def build_timeline(database, timeline_range="month", now_epoch=None):
         ).fetchall()
         rows = connection.execute(
             f"""SELECT habit_id,{bucket_sql} AS bucket,COUNT(*) AS sessions
-                  FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
+                  FROM events WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<?
                  GROUP BY habit_id,bucket ORDER BY habit_id,bucket""",
-            (start.isoformat(), end.isoformat()),
+            (now_epoch, start.isoformat(), end.isoformat()),
         ).fetchall()
     values = {(row["habit_id"], row["bucket"]): row["sessions"] for row in rows}
     series = [{"id": row["id"], "name": row["name"] or f"Habit {row['id'] + 1}",
@@ -230,9 +230,9 @@ def build_time_chart(database, period="week", offset=0, now_epoch=None):
         bucket_sql = "substr(tickstone_day,1,7)" if period in ("year", "all") else "tickstone_day"
         rows = connection.execute(
             f"""SELECT habit_id,{bucket_sql} AS bucket,SUM(duration_seconds) AS seconds
-                  FROM events WHERE deleted=0 AND type='time' AND tickstone_day>=? AND tickstone_day<?
+                  FROM events WHERE deleted=0 AND type='time' AND started_at<? AND tickstone_day>=? AND tickstone_day<?
                  GROUP BY habit_id,bucket ORDER BY habit_id,bucket""",
-            (start.isoformat(), end.isoformat()),
+            (now_epoch, start.isoformat(), end.isoformat()),
         ).fetchall()
     if period in ("year", "all"):
         labels = []
@@ -361,6 +361,20 @@ def _record_duration(value):
     return _duration_compact(value)
 
 
+def _milestone_duration(seconds):
+    seconds = int(seconds)
+    if seconds < 60:
+        return f"{seconds} sek"
+    minutes, remainder = divmod(seconds, 60)
+    if minutes < 60:
+        return f"{minutes} min {remainder} sek" if remainder else f"{minutes} min"
+    hours, minutes = divmod(minutes, 60)
+    suffix = f" {minutes} min" if minutes else ""
+    if remainder:
+        suffix += f" {remainder} sek"
+    return f"{hours} h{suffix}"
+
+
 def build_dashboard_intelligence(database, now_epoch=None):
     now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
     _, today = _today(now_epoch)
@@ -370,14 +384,19 @@ def build_dashboard_intelligence(database, now_epoch=None):
 
     with _readonly_connection(database) as connection:
         identities = connection.execute(
-            """SELECT h.slot_id AS id,h.name,h.type FROM habits h WHERE h.active=1
-               UNION SELECT e.habit_id,NULL,MIN(e.type) FROM events e
-                WHERE e.deleted=0 AND NOT EXISTS(SELECT 1 FROM habits h WHERE h.slot_id=e.habit_id)
-               GROUP BY e.habit_id ORDER BY id"""
+            "SELECT slot_id AS id,code,name,type,current_snapshot_id FROM habits WHERE active=1 ORDER BY slot_id"
         ).fetchall()
         events = connection.execute(
-            """SELECT habit_id,type,started_at,duration_seconds,count,tickstone_day
-                 FROM events WHERE deleted=0 AND started_at<? ORDER BY started_at,id""", (now_epoch,)
+            """SELECT e.habit_id,e.type,e.started_at,e.duration_seconds,e.count,e.tickstone_day
+                 FROM events e JOIN habits h ON h.slot_id=e.habit_id
+                WHERE e.deleted=0 AND e.started_at<? AND h.active=1 AND h.type=e.type
+                  AND ((e.config_snapshot_id IS NOT NULL AND EXISTS(
+                        SELECT 1 FROM habit_snapshot_entries se
+                         WHERE se.snapshot_id=e.config_snapshot_id AND se.slot_id=e.habit_id
+                           AND se.active=1 AND se.code=h.code AND se.name=h.name AND se.type=h.type))
+                    OR (e.config_snapshot_id IS NULL AND e.started_at>=COALESCE((
+                        SELECT hs.valid_from FROM habit_snapshots hs WHERE hs.id=h.current_snapshot_id),0)))
+                ORDER BY e.started_at,e.id""", (now_epoch,),
         ).fetchall()
 
     identity_by_id = {row["id"]: {"id": row["id"], "name": row["name"] or f"Habit {row['id'] + 1}",
@@ -406,20 +425,21 @@ def build_dashboard_intelligence(database, now_epoch=None):
     momentum_candidates = []
     log_delta = len(current_week_events) - len(previous_week_events)
     if log_delta > 0:
-        score = round(log_delta / max(1, len(previous_week_events)) * 100)
-        momentum_candidates.append((score, 1, {"label": "På väg upp",
+        improvement = log_delta / max(1, len(previous_week_events))
+        momentum_candidates.append((improvement, 2, 0, {"label": "På väg upp",
                                                "detail": f"{log_delta} fler loggar än vid samma tid förra veckan",
                                                "kind": "logs"}))
     day_delta = len(current_days) - len(previous_days)
     if day_delta > 0:
-        momentum_candidates.append((day_delta * 60, 2, {"label": "Veckans vinst",
+        improvement = day_delta / max(1, len(previous_days))
+        momentum_candidates.append((improvement, 3, 0, {"label": "Veckans vinst",
                                                         "detail": f"Du var aktiv {day_delta} fler {'dag' if day_delta == 1 else 'dagar'}",
                                                         "kind": "days"}))
     for comparison in habit_comparisons:
         weekly = comparison["week"]
         if weekly["percent"] is not None and weekly["percent"] > 0:
             identity = identity_by_id[comparison["id"]]
-            momentum_candidates.append((weekly["percent"], 3, {"label": "På väg upp",
+            momentum_candidates.append((weekly["percent"] / 100, 4, -comparison["id"], {"label": "På väg upp",
                                                                 "detail": f"{identity['name'].title()} ökade med {weekly['percent']}%",
                                                                 "kind": "habit"}))
     for identity in identity_by_id.values():
@@ -432,11 +452,23 @@ def build_dashboard_intelligence(database, now_epoch=None):
                          .astimezone(STOCKHOLM) - timedelta(days=7 * weeks_back)).timestamp())
             prior_equivalents.append(sum(1 for event in events if event["habit_id"] == identity["id"] and start <= event["started_at"] < end))
         if current_count and any(prior_equivalents) and current_count > max(prior_equivalents):
-            momentum_candidates.append((120 + current_count, 4, {"label": "Veckans vinst",
+            prior_peak = max(prior_equivalents)
+            improvement = (current_count - prior_peak) / prior_peak
+            momentum_candidates.append((improvement, 1, -identity["id"], {"label": "Veckans vinst",
                                                                  "detail": f"{identity['name'].title()} hade sin bästa vecka på en månad",
                                                                  "kind": "best-month"}))
-    momentum = max(momentum_candidates, key=lambda item: (item[0], item[1]))[2] if momentum_candidates else {
-        "label": "I takt", "detail": "Samma nivå som vid samma tid förra veckan", "kind": "flat"}
+    if momentum_candidates:
+        momentum = max(momentum_candidates, key=lambda item: (item[0], item[1], item[2]))[3]
+    elif log_delta < 0:
+        amount = abs(log_delta)
+        momentum = {"label": "Ingen positiv trend ännu",
+                    "detail": f"{amount} färre loggar än vid samma tid förra veckan", "kind": "down"}
+    elif day_delta < 0:
+        amount = abs(day_delta)
+        momentum = {"label": "Ingen positiv trend ännu",
+                    "detail": f"{amount} färre aktiva {'dag' if amount == 1 else 'dagar'} än förra veckan", "kind": "down"}
+    else:
+        momentum = {"label": "I takt", "detail": "Samma nivå som vid samma tid förra veckan", "kind": "flat"}
 
     weekly_sessions = defaultdict(int)
     weekly_time = defaultdict(int)
@@ -527,9 +559,10 @@ def build_dashboard_intelligence(database, now_epoch=None):
         values = weekly_habit_values[identity["id"]]
         current_value = values.get(current_week_key, 0)
         previous_best = max((value for week, value in values.items() if week < current_week_key), default=0)
-        if current_value > 0 and previous_best > current_value:
-            remaining = previous_best - current_value
-            shown = _duration_compact(remaining) if identity["type"] == "time" else f"{remaining} {'tillfälle' if remaining == 1 else 'tillfällen'}"
+        if current_value > 0 and previous_best >= current_value:
+            target = previous_best + 1
+            remaining = target - current_value
+            shown = _milestone_duration(remaining) if identity["type"] == "time" else f"{remaining} {'tillfälle' if remaining == 1 else 'tillfällen'}"
             milestone_candidates.append((remaining / previous_best, remaining, {
                 "habit_id": identity["id"], "remaining": remaining,
                 "text": f"{shown} kvar till nytt personbästa i {identity['name'].title()}"}))
@@ -562,27 +595,28 @@ def build_statistics_overview(database, period="week", offset=0, now_epoch=None)
             """SELECT habit_id,tickstone_day,type,COUNT(*) AS sessions,
                       COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
                       COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
-                 FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
+                 FROM events WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<?
                 GROUP BY habit_id,tickstone_day,type ORDER BY tickstone_day,habit_id""",
-            (start.isoformat(), end.isoformat()),
+            (now_epoch, start.isoformat(), end.isoformat()),
         ).fetchall()
         previous_rows = connection.execute(
             """SELECT habit_id,type,COUNT(*) AS sessions,
                       COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
                       COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
-                 FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
-                GROUP BY habit_id,type""", (previous[0].isoformat(), previous[1].isoformat()),
+                 FROM events WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<?
+                GROUP BY habit_id,type""", (now_epoch, previous[0].isoformat(), previous[1].isoformat()),
         ).fetchall()
         heat_end = min(end - timedelta(days=1), today)
         heat_end += timedelta(days=6 - heat_end.weekday())
         heat_start = heat_end - timedelta(days=83)
         heat_rows = connection.execute(
             """SELECT tickstone_day,COUNT(*) AS sessions FROM events
-                WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<=? GROUP BY tickstone_day""",
-            (heat_start.isoformat(), heat_end.isoformat()),
+                WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<=? GROUP BY tickstone_day""",
+            (now_epoch, heat_start.isoformat(), heat_end.isoformat()),
         ).fetchall()
         streak_rows = connection.execute(
-            "SELECT habit_id,tickstone_day FROM events WHERE deleted=0 GROUP BY habit_id,tickstone_day ORDER BY habit_id,tickstone_day"
+            "SELECT habit_id,tickstone_day FROM events WHERE deleted=0 AND started_at<? GROUP BY habit_id,tickstone_day ORDER BY habit_id,tickstone_day",
+            (now_epoch,),
         ).fetchall()
         metadata_status = _metadata_status(connection)
 
@@ -692,13 +726,23 @@ def build_statistics_overview(database, period="week", offset=0, now_epoch=None)
         insights.append({"kind": "consistency", "text": f"{strongest['name'].title()} leder perioden med {strongest['progress_percent']}% av målet."})
     if not insights:
         insights.append({"kind": "trend", "text": "Logga några aktiviteter för att låsa upp personliga insikter."})
-    if offset == 0:
+    if period == "week" and offset == 0:
         highlighted = []
         if intelligence["record_insight"]:
             highlighted.append({"kind": "record", "text": intelligence["record_insight"]["text"]})
         if intelligence["milestone"]:
             highlighted.append({"kind": "milestone", "text": intelligence["milestone"]["text"]})
         insights = (highlighted + insights)[:2]
+
+    period_comparison = _period_comparison(current_sessions, previous_sessions, period)
+    if period == "week" and offset == 0:
+        momentum_card = intelligence["momentum"]
+    else:
+        percent = period_comparison["percent"]
+        label = ("Hela historiken" if period == "all" else
+                 "Ny period" if percent is None and period_comparison["tone"] == "up" else
+                 f'{"+" if percent and percent > 0 else ""}{percent}%' if percent is not None else "Periodjämförelse")
+        momentum_card = {"label": label, "detail": period_comparison["label"], "kind": "selected-period"}
 
     previous_offset = offset - 1 if period != "all" else None
     next_offset = offset + 1 if period != "all" and offset < 0 else None
@@ -709,8 +753,8 @@ def build_statistics_overview(database, period="week", offset=0, now_epoch=None)
             "metadata_status": metadata_status,
             "kpis": {"active_days": active_days, "possible_days": possible_days,
                      "completion_percent": completion_percent, "total_seconds": total_seconds,
-                     "comparison": _period_comparison(current_sessions, previous_sessions, period),
-                     "momentum": intelligence["momentum"]},
+                     "comparison": period_comparison,
+                     "momentum": momentum_card},
             "personal_records": intelligence["personal_records"],
             "new_records": intelligence["new_records"],
             "activity": activity, "habits": habits,
@@ -856,8 +900,8 @@ def build_habit_detail(database, habit_id, period="week", now_epoch=None):
                 SELECT 1 FROM habit_snapshot_entries se WHERE se.snapshot_id=e.config_snapshot_id
                  AND se.slot_id=e.habit_id AND se.active=1 AND se.code=? AND se.name=? AND se.type=?))"""
             identity_params = [identity["code"], identity["name"], identity["type"]]
-        base = f"FROM events e WHERE e.deleted=0 AND e.habit_id=? AND e.type=? {exact_filter}"
-        params = [habit_id, identity["type"], *identity_params]
+        base = f"FROM events e WHERE e.deleted=0 AND e.habit_id=? AND e.type=? AND e.started_at<? {exact_filter}"
+        params = [habit_id, identity["type"], now_epoch, *identity_params]
         daily_rows = connection.execute(
             f"""SELECT tickstone_day, COUNT(*) AS sessions,
                        SUM(CASE WHEN e.type='count' THEN e.count ELSE e.duration_seconds END) AS value

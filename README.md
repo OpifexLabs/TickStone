@@ -132,8 +132,11 @@ exakt samma forflutna lokala tid i foregaende period (`V: +N%`, `M: -N%`) med se
 positiva/negativa toner. Momentumkortet rankar den starkaste positiva utvecklingen mot samma
 veckodag och klockslag forra veckan, i stallet for att jamfora en ofullstandig vecka med en hel.
 Personliga rekord beraknas for streak, vecka, dagstillfallen, tidssession och veckotid men visas
-bara som en tillfallig insikt nar en tidigare baseline faktiskt slas. Narmaste relevanta gap till
-ett tidigare veckorekord kan visas som milstolpe; nagon permanent rekordpanel finns inte.
+bara som en tillfallig insikt nar en tidigare baseline faktiskt slas. Historiska baselines ar
+bundna till samma versionslagrade habitidentitet och typ; en ateranvand slot blandar aldrig count
+med sekunder eller en gammal vana med en ny. Inaktiva habits driver inte aktuell intelligens.
+Narmaste relevanta gap till att faktiskt sla (inte bara tangera) ett tidigare veckorekord kan
+visas som milstolpe; nagon permanent rekordpanel finns inte.
 Tidsgrafen kan visas som staplar eller linjer;
 valda habits och diagramtyp sparas i `sessionStorage`. Count-events visas inte i grafen.
 Count-habits har dagsmal 1; time-habits anvander firmwarets
