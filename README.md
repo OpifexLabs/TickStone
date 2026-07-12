@@ -124,6 +124,14 @@ valjas eller doljas; valet bevaras i webblasarsessionen. Grafen jamfor konsekven
 aktivitetstillfallen, medan habitdetaljer fortsatter anvanda habitens riktiga enhet
 (count eller duration). Data levereras read-only fran `/api/timeline?range=week|month|year`.
 
+Huvudvyn ar en periodstyrd statistikarbetsyta med `period=week|month|year|all` och
+bakatriktad `offset`. Den visar aktiva dagar, malnormaliserad genomforandegrad, total tid,
+kalenderjamforelse, staplad count/time-aktivitet, klickbara habitresultat, 12-veckors heatmap
+och datagrundade insikter. Count-habits har dagsmal 1; time-habits anvander firmwarets
+`default_minutes`. Daglig uppfyllelse kapas vid 100 procent sa att en extrem dag inte kan
+dolja missade dagar. Framtida offset avvisas och senare-pilen ar inaktiv i aktuell period.
+Habitdetaljerna anvander samma navigationsskal och visuella system som oversikten.
+
 - LAN: `http://192.168.86.29:8750`
 - Tailscale: `http://100.111.154.107:8750`
 - Health: `/healthz`
