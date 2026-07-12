@@ -86,3 +86,15 @@
 3. Review the final diff for read-only behavior, DST/calendar correctness, escaping, and deterministic ranking.
 4. Commit with the Opifex noreply identity, push, merge, restart production.
 5. Verify LAN/Tailscale health, exact viewport screenshots, browser console, fair comparison copy, record/milestone conditionality, and systemd restart recovery.
+
+## Post-merge review hardening
+
+The independent review gate additionally requires:
+
+- baselines partitioned by versionslagrad habit identity and type
+- inactive and future events excluded consistently
+- milestones measured to the first value that beats, not ties, the record
+- truthful decline copy when no positive momentum exists
+- current-week intelligence shown only on the current week view
+- normalized deterministic momentum ranking
+- measured overview latency and full-history performance monitoring
