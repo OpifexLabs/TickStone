@@ -1,4 +1,9 @@
 (() => {
+  if (document.body.classList.contains("statistics-app")) {
+    window.setTimeout(() => {
+      if (!document.hidden) window.location.reload();
+    }, 300000);
+  }
   const chart = document.getElementById("timeline-chart");
   if (!chart) return;
 

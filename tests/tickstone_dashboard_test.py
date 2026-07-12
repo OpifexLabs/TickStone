@@ -19,11 +19,13 @@ from tools.tickstone_dashboard import (  # noqa: E402
     DashboardServer,
     build_dashboard,
     build_habit_detail,
+    build_statistics_overview,
     build_overview_comparisons,
     build_timeline,
     make_handler,
     render_dashboard,
     render_habit_detail,
+    render_statistics_dashboard,
 )
 
 
@@ -70,6 +72,19 @@ class DashboardDataTest(unittest.TestCase):
             "count": count,
             "deleted": deleted,
         })
+
+    def add_habit(self, slot, code, name, kind, default_minutes=1):
+        with open_store(self.database) as connection, connection:
+            snapshot = connection.execute("SELECT id FROM habit_snapshots LIMIT 1").fetchone()[0]
+            connection.execute(
+                "INSERT INTO habits(slot_id,code,name,type,default_minutes,active,current_snapshot_id,updated_at) "
+                "VALUES(?,?,?,?,?,1,?,'2026-07-12T00:00:00Z')",
+                (slot, code, name, kind, default_minutes, snapshot),
+            )
+            connection.execute(
+                "INSERT INTO habit_snapshot_entries(snapshot_id,slot_id,code,name,type,default_minutes,active) "
+                "VALUES(?,?,?,?,?,?,1)", (snapshot, slot, code, name, kind, default_minutes),
+            )
 
     def test_empty_dashboard_has_stable_zero_state(self):
         model = build_dashboard(self.database, self.epoch("2026-07-12T12:00:00"))
@@ -185,6 +200,77 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(comparison["percent"], None)
         self.assertEqual(comparison["tone"], "up")
         self.assertEqual(comparison["label"], "Ny aktivitet den här månaden")
+    def test_reference_overview_uses_calendar_period_navigation_and_kpis(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
+        self.add(70, 0, "count", "2026-07-06T08:00:00", count=1)
+        self.add(71, 1, "time", "2026-07-06T09:00:00", duration=300)
+        self.add(72, 0, "count", "2026-07-07T08:00:00", count=1)
+        self.add(73, 1, "time", "2026-07-07T09:00:00", duration=600)
+        self.add(74, 0, "count", "2026-06-30T08:00:00", count=1)
+        self.add(75, 0, "count", "2026-07-08T08:00:00", count=1, deleted=True)
+
+        model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+        previous = build_statistics_overview(self.database, "week", -1, self.epoch("2026-07-12T12:00:00"))
+
+        self.assertEqual((model["period_start"], model["period_end"]), ("2026-07-06", "2026-07-12"))
+        self.assertEqual(model["period_label"], "6–12 juli 2026")
+        self.assertEqual(model["navigation"], {"previous_offset": -1, "next_offset": None})
+        self.assertEqual((previous["period_start"], previous["period_end"]), ("2026-06-29", "2026-07-05"))
+        self.assertEqual(model["kpis"]["active_days"], 2)
+        self.assertEqual(model["kpis"]["possible_days"], 7)
+        self.assertEqual(model["kpis"]["completion_percent"], 25)
+        self.assertEqual(model["kpis"]["total_seconds"], 900)
+        self.assertEqual(model["kpis"]["comparison"]["label"], "+300% jämfört med förra veckan")
+        self.assertEqual(len(model["activity"]), 7)
+        self.assertEqual(model["activity"][0]["count_percent"], 100)
+        self.assertEqual(model["activity"][0]["time_percent"], 50)
+
+    def test_streak_remains_current_when_last_activity_was_yesterday(self):
+        self.add(76, 0, "count", "2026-07-11T08:00:00", count=1)
+        model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+        self.assertEqual(model["habits"][0]["current_streak"], 1)
+
+    def test_reference_overview_habit_rows_heatmap_and_insights_are_grounded(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
+        for ident, stamp in enumerate(("2026-07-06T08:00:00", "2026-07-07T08:00:00", "2026-07-08T08:00:00"), 80):
+            self.add(ident, 0, "count", stamp, count=1)
+        self.add(90, 1, "time", "2026-07-06T09:00:00", duration=600)
+
+        model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+
+        meditation = next(row for row in model["habits"] if row["id"] == 1)
+        self.assertEqual((meditation["type_label"], meditation["display_value"]), ("Tid", "10 min"))
+        self.assertEqual(meditation["progress_percent"], 14)
+        self.assertEqual(len(model["heatmap"]["cells"]), 84)
+        self.assertEqual(model["heatmap"]["weeks"], 12)
+        self.assertTrue(all(0 <= cell["level"] <= 5 for cell in model["heatmap"]["cells"]))
+        self.assertTrue(model["insights"])
+        self.assertTrue(all(item["text"] and item["kind"] in ("calendar", "trend", "consistency")
+                            for item in model["insights"]))
+
+        rendered = render_statistics_dashboard(model)
+        for marker in ('class="app-sidebar"', 'Din statistik', 'Veckans aktivitet', 'Dina vanor',
+                       'Aktivitet senaste 12 veckorna', 'Insikter', 'period-switcher', 'habit-performance'):
+            self.assertIn(marker, rendered)
+        self.assertIn('href="/?period=month&amp;offset=0"', rendered)
+        self.assertIn('aria-label="Föregående period"', rendered)
+        self.assertIn('<strong>Ny</strong><span>aktivitet den här veckan</span>', rendered)
+        self.assertLess(rendered.index('class="stack-count"'), rendered.index('class="stack-time"'))
+        self.assertNotIn("https://", rendered)
+
+    def test_reference_overview_supports_month_year_all_and_rejects_future_offsets(self):
+        month = build_statistics_overview(self.database, "month", 0, self.epoch("2024-02-29T12:00:00"))
+        year = build_statistics_overview(self.database, "year", 0, self.epoch("2024-02-29T12:00:00"))
+        all_time = build_statistics_overview(self.database, "all", 0, self.epoch("2024-02-29T12:00:00"))
+        self.assertEqual((month["period_start"], month["period_end"], len(month["activity"])),
+                         ("2024-02-01", "2024-02-29", 29))
+        self.assertEqual((year["period_start"], year["period_end"], len(year["activity"])),
+                         ("2024-01-01", "2024-12-31", 12))
+        self.assertEqual(all_time["period_label"], "All sparad tid")
+        with self.assertRaises(ValueError):
+            build_statistics_overview(self.database, "week", 1, self.epoch("2026-07-12T12:00:00"))
+        with self.assertRaises(ValueError):
+            build_statistics_overview(self.database, "decade", 0, self.epoch("2026-07-12T12:00:00"))
 
 
 class DashboardRenderTest(unittest.TestCase):
@@ -221,6 +307,7 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("@media (prefers-reduced-motion: reduce)", css)
         self.assertIn(":focus-visible", css)
         self.assertIn("overflow-x: hidden", css)
+        self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
         self.assertIn("Math.min(4, maximum)", script)
         self.assertIn("tickCount", script)
@@ -238,6 +325,9 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("&lt;script&gt;", rendered)
         self.assertIn('/habit/0?period=month', rendered)
         self.assertIn('aria-current=page', rendered)
+        self.assertIn('class="statistics-app"', rendered)
+        self.assertIn('class="app-sidebar"', rendered)
+        self.assertIn('detail-workspace', rendered)
 
 
 class DashboardHttpTest(unittest.TestCase):
@@ -290,6 +380,16 @@ class DashboardHttpTest(unittest.TestCase):
         status, headers, _ = self.request("POST", "/")
         self.assertEqual(status, 405)
         self.assertEqual(headers["Allow"], "GET, HEAD")
+
+    def test_overview_period_query_is_validated_and_read_only(self):
+        before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)
+        status, _, body = self.request("GET", "/?period=month&offset=-1")
+        self.assertEqual(status, 200)
+        self.assertIn(b"Din statistik", body)
+        self.assertEqual(self.request("GET", "/?period=decade")[0], 400)
+        self.assertEqual(self.request("GET", "/?period=week&offset=1")[0], 400)
+        self.assertEqual(self.request("GET", "/?period=week&offset=not-a-number")[0], 400)
+        self.assertEqual((self.database.stat().st_mtime_ns, self.database.stat().st_size), before)
 
     def test_timeline_api_is_bounded_json_and_read_only(self):
         before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)

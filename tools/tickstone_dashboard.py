@@ -6,6 +6,7 @@ import html
 import json
 import re
 import sqlite3
+from collections import defaultdict
 from datetime import date, datetime, timedelta, timezone
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
@@ -176,6 +177,247 @@ def build_timeline(database, timeline_range="month", now_epoch=None):
             "unit": "aktivitetstillfällen"}
 
 
+def _shift_month(year, month, delta):
+    absolute = year * 12 + month - 1 + delta
+    return absolute // 12, absolute % 12 + 1
+
+
+def _statistics_bounds(today, period, offset, earliest=None):
+    if period not in ("week", "month", "year", "all") or type(offset) is not int or offset > 0:
+        raise ValueError("invalid period or offset")
+    if period == "week":
+        start = today - timedelta(days=today.weekday()) + timedelta(weeks=offset)
+        end = start + timedelta(days=7)
+        previous = (start - timedelta(days=7), start)
+    elif period == "month":
+        year, month = _shift_month(today.year, today.month, offset)
+        start = date(year, month, 1)
+        next_year, next_month = _shift_month(year, month, 1)
+        end = date(next_year, next_month, 1)
+        previous_year, previous_month = _shift_month(year, month, -1)
+        previous = (date(previous_year, previous_month, 1), start)
+    elif period == "year":
+        start = date(today.year + offset, 1, 1)
+        end = date(start.year + 1, 1, 1)
+        previous = (date(start.year - 1, 1, 1), start)
+    else:
+        if offset != 0:
+            raise ValueError("all-time does not support offset")
+        start = earliest or today
+        end = today + timedelta(days=1)
+        previous = (start, start)
+    return start, end, previous
+
+
+def _swedish_period_label(start, end, period):
+    if period == "week":
+        last = end - timedelta(days=1)
+        if start.month == last.month:
+            return f"{start.day}–{last.day} {SWEDISH_MONTHS[last.month - 1]} {last.year}"
+        return f"{start.day} {SWEDISH_MONTHS[start.month - 1][:3]}–{last.day} {SWEDISH_MONTHS[last.month - 1][:3]} {last.year}"
+    if period == "month":
+        return f"{SWEDISH_MONTHS[start.month - 1].capitalize()} {start.year}"
+    if period == "year":
+        return str(start.year)
+    return "All sparad tid"
+
+
+def _duration_compact(seconds):
+    seconds = int(seconds or 0)
+    if seconds < 60:
+        return f"{seconds} sek"
+    if seconds < 3600:
+        return f"{round(seconds / 60)} min"
+    hours, remainder = divmod(seconds, 3600)
+    minutes = remainder // 60
+    return f"{hours} h {minutes:02d} min" if minutes else f"{hours} h"
+
+
+def _period_comparison(current, previous, period):
+    if period == "all":
+        return {"current": current, "previous": previous, "percent": None, "tone": "flat",
+                "label": "Hela historiken", "delta": ""}
+    if period in ("week", "month"):
+        result = _comparison_result(current, previous, period)
+    else:
+        if previous == 0:
+            result = {"current": current, "previous": previous, "percent": None,
+                      "tone": "up" if current else "flat",
+                      "label": "Ny aktivitet i år" if current else "Samma nivå som förra året"}
+        else:
+            percent = round((current - previous) / previous * 100)
+            result = {"current": current, "previous": previous, "percent": percent,
+                      "tone": "up" if percent > 0 else "down" if percent < 0 else "flat",
+                      "label": f'{"+" if percent > 0 else ""}{percent}% jämfört med förra året' if percent else "Samma nivå som förra året"}
+    result["delta"] = f'{current - previous:+d} aktivitetstillfällen' if current != previous else "Oförändrat"
+    return result
+
+
+def build_statistics_overview(database, period="week", offset=0, now_epoch=None):
+    now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
+    now, today = _today(now_epoch)
+    with _readonly_connection(database) as connection:
+        earliest_row = connection.execute(
+            "SELECT MIN(tickstone_day) FROM events WHERE deleted=0"
+        ).fetchone()[0]
+        earliest = date.fromisoformat(earliest_row) if earliest_row else today
+        start, end, previous = _statistics_bounds(today, period, offset, earliest)
+        visible_end = min(end, today + timedelta(days=1)) if offset == 0 else end
+        possible_days = max(1, (visible_end - start).days)
+        identities = connection.execute(
+            """SELECT h.slot_id AS id,h.code,h.name,h.type,h.default_minutes
+                 FROM habits h WHERE h.active=1
+                UNION SELECT e.habit_id,NULL,NULL,MIN(e.type),1 FROM events e
+                 WHERE e.deleted=0 AND NOT EXISTS(SELECT 1 FROM habits h WHERE h.slot_id=e.habit_id)
+                GROUP BY e.habit_id ORDER BY id"""
+        ).fetchall()
+        current_rows = connection.execute(
+            """SELECT habit_id,tickstone_day,type,COUNT(*) AS sessions,
+                      COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
+                      COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
+                 FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
+                GROUP BY habit_id,tickstone_day,type ORDER BY tickstone_day,habit_id""",
+            (start.isoformat(), end.isoformat()),
+        ).fetchall()
+        previous_rows = connection.execute(
+            """SELECT habit_id,type,COUNT(*) AS sessions,
+                      COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
+                      COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
+                 FROM events WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<?
+                GROUP BY habit_id,type""", (previous[0].isoformat(), previous[1].isoformat()),
+        ).fetchall()
+        heat_end = min(end - timedelta(days=1), today)
+        heat_end += timedelta(days=6 - heat_end.weekday())
+        heat_start = heat_end - timedelta(days=83)
+        heat_rows = connection.execute(
+            """SELECT tickstone_day,COUNT(*) AS sessions FROM events
+                WHERE deleted=0 AND tickstone_day>=? AND tickstone_day<=? GROUP BY tickstone_day""",
+            (heat_start.isoformat(), heat_end.isoformat()),
+        ).fetchall()
+        streak_rows = connection.execute(
+            "SELECT habit_id,tickstone_day FROM events WHERE deleted=0 GROUP BY habit_id,tickstone_day ORDER BY habit_id,tickstone_day"
+        ).fetchall()
+        metadata_status = _metadata_status(connection)
+
+    identity_by_id = {row["id"]: row for row in identities}
+    current_by_day_habit = {(row["tickstone_day"], row["habit_id"]): row for row in current_rows}
+    current_sessions = sum(row["sessions"] for row in current_rows)
+    previous_sessions = sum(row["sessions"] for row in previous_rows)
+    active_days = len({row["tickstone_day"] for row in current_rows})
+    total_seconds = sum(row["seconds"] for row in current_rows)
+    count_ids = [row["id"] for row in identities if row["type"] == "count"]
+    time_ids = [row["id"] for row in identities if row["type"] == "time"]
+
+    achieved = 0.0
+    for day_offset in range(possible_days):
+        day_string = (start + timedelta(days=day_offset)).isoformat()
+        for identity in identities:
+            row = current_by_day_habit.get((day_string, identity["id"]))
+            raw = 0 if not row else row["count_total"] if identity["type"] == "count" else row["seconds"]
+            target = 1 if identity["type"] == "count" else max(60, (identity["default_minutes"] or 1) * 60)
+            achieved += min(1, raw / target)
+    possible_targets = possible_days * len(identities)
+    completion_percent = round(achieved / possible_targets * 100) if possible_targets else 0
+
+    def daily_percent(day_string, ids):
+        if not ids:
+            return 0
+        total = 0.0
+        for habit_id in ids:
+            identity = identity_by_id[habit_id]
+            row = current_by_day_habit.get((day_string, habit_id))
+            raw = 0 if not row else row["count_total"] if identity["type"] == "count" else row["seconds"]
+            target = 1 if identity["type"] == "count" else max(60, (identity["default_minutes"] or 1) * 60)
+            total += min(1, raw / target)
+        return round(total / len(ids) * 100)
+
+    daily_activity = []
+    cursor = start
+    while cursor < end:
+        key = cursor.isoformat()
+        daily_activity.append({"date": key, "label": DAY_LABELS[cursor.weekday()],
+                               "count_percent": daily_percent(key, count_ids),
+                               "time_percent": daily_percent(key, time_ids)})
+        cursor += timedelta(days=1)
+    if period in ("year", "all"):
+        grouped = {}
+        for item in daily_activity:
+            month_key = item["date"][:7]
+            bucket = grouped.setdefault(month_key, {"count": [], "time": []})
+            bucket["count"].append(item["count_percent"]); bucket["time"].append(item["time_percent"])
+        activity = [{"date": key, "label": SWEDISH_MONTHS[int(key[-2:]) - 1][:3].capitalize(),
+                     "count_percent": round(sum(values["count"]) / len(values["count"])),
+                     "time_percent": round(sum(values["time"]) / len(values["time"]))}
+                    for key, values in sorted(grouped.items())]
+    else:
+        activity = daily_activity
+
+    previous_by_habit = {row["habit_id"]: row for row in previous_rows}
+    streak_by_habit = defaultdict(list)
+    for row in streak_rows:
+        streak_by_habit[row["habit_id"]].append(row["tickstone_day"])
+    habits = []
+    for identity in identities:
+        rows = [row for row in current_rows if row["habit_id"] == identity["id"]]
+        sessions = sum(row["sessions"] for row in rows)
+        raw_value = sum(row["count_total"] if identity["type"] == "count" else row["seconds"] for row in rows)
+        target = 1 if identity["type"] == "count" else max(60, (identity["default_minutes"] or 1) * 60)
+        normalized = sum(min(1, (row["count_total"] if identity["type"] == "count" else row["seconds"]) / target) for row in rows)
+        progress = round(normalized / possible_days * 100)
+        previous_row = previous_by_habit.get(identity["id"])
+        previous_value = 0 if not previous_row else previous_row["count_total"] if identity["type"] == "count" else previous_row["seconds"]
+        comparison = _period_comparison(raw_value, previous_value, period)
+        current_streak, longest_streak = _longest_streak(streak_by_habit[identity["id"]], today)
+        display_value = f"{raw_value} {'gång' if raw_value == 1 else 'gånger'}" if identity["type"] == "count" else _duration_compact(raw_value)
+        habits.append({"id": identity["id"], "code": identity["code"] or "",
+                       "name": identity["name"] or f"Habit {identity['id'] + 1}",
+                       "type": identity["type"], "type_label": "Tillfällen" if identity["type"] == "count" else "Tid",
+                       "sessions": sessions, "display_value": display_value,
+                       "progress_percent": progress, "current_streak": current_streak,
+                       "longest_streak": longest_streak, "comparison": comparison,
+                       "color": SERIES_COLORS[identity["id"] % len(SERIES_COLORS)]})
+
+    heat_values = {row["tickstone_day"]: row["sessions"] for row in heat_rows}
+    heat_peak = max(heat_values.values(), default=1)
+    heat_cells = []
+    cursor = heat_start
+    while cursor <= heat_end:
+        value = heat_values.get(cursor.isoformat(), 0)
+        level = 0 if value == 0 else max(1, min(5, round(value / heat_peak * 5)))
+        heat_cells.append({"date": cursor.isoformat(), "value": value, "level": level,
+                           "weekday": cursor.weekday(), "future": cursor > today})
+        cursor += timedelta(days=1)
+
+    weekday_counts = defaultdict(int)
+    for row in current_rows:
+        weekday_counts[date.fromisoformat(row["tickstone_day"]).weekday()] += row["sessions"]
+    insights = []
+    if weekday_counts:
+        best_weekday = max(weekday_counts, key=lambda key: (weekday_counts[key], -key))
+        weekday_names = ("måndagar", "tisdagar", "onsdagar", "torsdagar", "fredagar", "lördagar", "söndagar")
+        insights.append({"kind": "calendar", "text": f"Du är mest konsekvent på {weekday_names[best_weekday]}."})
+    strongest = max(habits, key=lambda row: row["progress_percent"], default=None)
+    if strongest and strongest["sessions"]:
+        insights.append({"kind": "consistency", "text": f"{strongest['name'].title()} leder perioden med {strongest['progress_percent']}% av målet."})
+    if not insights:
+        insights.append({"kind": "trend", "text": "Logga några aktiviteter för att låsa upp personliga insikter."})
+
+    previous_offset = offset - 1 if period != "all" else None
+    next_offset = offset + 1 if period != "all" and offset < 0 else None
+    return {"generated_at": f"{now:%Y-%m-%d %H:%M}", "period": period, "offset": offset,
+            "period_start": start.isoformat(), "period_end": (end - timedelta(days=1)).isoformat(),
+            "period_label": _swedish_period_label(start, end, period),
+            "navigation": {"previous_offset": previous_offset, "next_offset": next_offset},
+            "metadata_status": metadata_status,
+            "kpis": {"active_days": active_days, "possible_days": possible_days,
+                     "completion_percent": completion_percent, "total_seconds": total_seconds,
+                     "comparison": _period_comparison(current_sessions, previous_sessions, period)},
+            "activity": activity, "habits": habits,
+            "heatmap": {"weeks": 12, "start": heat_start.isoformat(), "end": heat_end.isoformat(),
+                        "cells": heat_cells},
+            "insights": insights}
+
+
 def build_dashboard(database, now_epoch=None):
     now_epoch = int(datetime.now(timezone.utc).timestamp()) if now_epoch is None else int(now_epoch)
     now, today = _today(now_epoch)
@@ -284,6 +526,8 @@ def _longest_streak(day_strings, today):
         longest = max(longest, run); previous = current
     current_run = 0; cursor = today
     known = set(days)
+    if cursor not in known and cursor - timedelta(days=1) in known:
+        cursor -= timedelta(days=1)
     while cursor in known:
         current_run += 1; cursor -= timedelta(days=1)
     return current_run, longest
@@ -374,6 +618,87 @@ def _metadata_note(status):
     return "Legacy-läge: events saknar säker historisk habitmetadata."
 
 
+def _stat_icon(kind):
+    paths = {
+        "calendar": '<rect x="4" y="6" width="16" height="14" rx="2"/><path d="M8 3v6M16 3v6M4 10h16"/>',
+        "check": '<circle cx="12" cy="12" r="9"/><path d="m8 12 3 3 5-6"/>',
+        "clock": '<circle cx="12" cy="12" r="9"/><path d="M12 7v6l4 2"/>',
+        "trend": '<path d="m4 17 6-6 4 4 6-8"/><path d="M15 7h5v5"/>',
+        "grid": '<rect x="4" y="4" width="6" height="6"/><rect x="14" y="4" width="6" height="6"/><rect x="4" y="14" width="6" height="6"/><rect x="14" y="14" width="6" height="6"/>',
+        "target": '<circle cx="12" cy="12" r="9"/><circle cx="12" cy="12" r="4"/><circle cx="12" cy="12" r="1"/>',
+        "history": '<path d="M4 20V10h4v10M10 20V4h4v16M16 20v-7h4v7M3 20h18"/>',
+        "settings": '<circle cx="12" cy="12" r="3"/><path d="M19 13.5v-3l-2-.7-.5-1.2.9-1.9-2.1-2.1-1.9.9-1.2-.5L11.5 3h-3l-.7 2-1.2.5-1.9-.9-2.1 2.1.9 1.9L3 9.8l-2 .7v3l2 .7.5 1.2-.9 1.9 2.1 2.1 1.9-.9 1.2.5.7 2h3l.7-2 1.2-.5 1.9.9 2.1-2.1-.9-1.9.5-1.2z"/>',
+        "bulb": '<path d="M9 18h6M10 21h4M8.5 14.5A6 6 0 1 1 15.5 14.5C14.5 15.2 14 16 14 17h-4c0-1-.5-1.8-1.5-2.5z"/>',
+    }
+    return f'<svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round">{paths.get(kind, paths["check"])}</svg>'
+
+
+def render_statistics_dashboard(model):
+    period_labels = (("week", "Vecka"), ("month", "Månad"), ("year", "År"), ("all", "All tid"))
+    tabs = "".join(
+        f'<a href="/?period={key}&amp;offset=0" class="period-option{" selected" if model["period"] == key else ""}"'
+        f'{" aria-current=page" if model["period"] == key else ""}>{label}</a>'
+        for key, label in period_labels
+    )
+    previous = model["navigation"]["previous_offset"]
+    next_offset = model["navigation"]["next_offset"]
+    previous_link = (f'<a class="period-arrow" aria-label="Föregående period" href="/?period={model["period"]}&amp;offset={previous}">‹</a>'
+                     if previous is not None else '<span class="period-arrow disabled" aria-hidden="true">‹</span>')
+    next_link = (f'<a class="period-arrow" aria-label="Nästa period" href="/?period={model["period"]}&amp;offset={next_offset}">›</a>'
+                 if next_offset is not None else '<span class="period-arrow disabled" aria-label="Ingen senare period">›</span>')
+    kpis = model["kpis"]
+    comparison = kpis["comparison"]
+    if comparison["percent"] is None and comparison["tone"] == "up":
+        trend_value = "Ny"
+        trend_label = {"week": "aktivitet den här veckan", "month": "aktivitet den här månaden",
+                       "year": "aktivitet i år"}.get(model["period"], "aktivitet")
+    elif comparison["percent"] is not None:
+        trend_value = f'{"+" if comparison["percent"] > 0 else ""}{comparison["percent"]}%'
+        trend_label = {"week": "jämfört med förra veckan", "month": "jämfört med förra månaden",
+                       "year": "jämfört med förra året"}.get(model["period"], "förändring")
+    else:
+        trend_value, trend_label = "—", comparison["label"]
+    kpi_cards = (
+        ("calendar", str(kpis["active_days"]), "aktiva dagar", f'av {kpis["possible_days"]} möjliga', f'{round(kpis["active_days"] / kpis["possible_days"] * 100) if kpis["possible_days"] else 0}%'),
+        ("check", f'{kpis["completion_percent"]}%', "genomfört", "normaliserat mot dina mål", ""),
+        ("clock", _duration_compact(kpis["total_seconds"]), "total tid", "i tidsbaserade vanor", ""),
+        ("trend", trend_value, trend_label, comparison["delta"], ""),
+    )
+    cards_html = "".join(
+        f'<article class="stat-card"><div class="stat-icon stat-icon-{kind}">{_stat_icon(kind)}</div><div class="stat-copy"><strong>{html.escape(value)}</strong><span>{html.escape(label)}</span><small>{html.escape(detail)}</small></div>'
+        f'{f"<b>{html.escape(badge)}</b>" if badge else ""}</article>'
+        for kind, value, label, detail, badge in kpi_cards
+    )
+    bars = "".join(
+        f'<div class="stack-column" aria-label="{html.escape(item["date"])}: {item["count_percent"]}% tillfällen, {item["time_percent"]}% tid">'
+        f'<div class="stack-space"><span class="stack-count" style="--value:{item["count_percent"]}"></span><span class="stack-time" style="--value:{item["time_percent"]}"></span></div>'
+        f'<small>{html.escape(item["label"])}</small></div>' for item in model["activity"]
+    ) or '<p class="empty-state">Ingen aktivitet i perioden.</p>'
+    habit_rows = "".join(
+        f'<a class="habit-performance" href="/habit/{habit["id"]}?period={model["period"] if model["period"] != "all" else "all"}">'
+        f'<span class="habit-symbol" style="--habit-color:{habit["color"]}">{html.escape((habit["code"] or habit["name"][:1]).upper())}</span>'
+        f'<strong>{html.escape(habit["name"].title())}</strong><span class="habit-type">{html.escape(habit["type_label"])}</span>'
+        f'<span class="habit-progress"><b>{html.escape(habit["display_value"])}</b><i><u style="--progress:{min(100, habit["progress_percent"])}"></u></i></span>'
+        f'<span class="habit-streak">{habit["current_streak"]} dagars streak</span>'
+        f'<span class="habit-compare compare-{habit["comparison"]["tone"]}">{html.escape(habit["comparison"]["label"].split(" jämfört")[0])}</span><span class="chevron">›</span></a>'
+        for habit in model["habits"]
+    ) or '<p class="empty-state">Dina habits visas här efter första synken.</p>'
+    heat_cells = "".join(
+        f'<span class="heat-cell level-{cell["level"]}{" future" if cell["future"] else ""}" title="{cell["date"]}: {cell["value"]} aktiviteter" aria-label="{cell["date"]}: {cell["value"]} aktiviteter"></span>'
+        for cell in model["heatmap"]["cells"]
+    )
+    week_labels = []
+    heat_start = date.fromisoformat(model["heatmap"]["start"])
+    for week in range(12):
+        label_date = heat_start + timedelta(weeks=week)
+        week_labels.append(f'<span>{label_date.day} {SWEDISH_MONTHS[label_date.month - 1][:3]}</span>')
+    insight_html = "".join(
+        f'<li><span class="insight-icon">{_stat_icon("calendar" if item["kind"] == "calendar" else "trend")}</span><p>{html.escape(item["text"])}</p></li>'
+        for item in model["insights"]
+    )
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f8f6"><title>Din statistik · TickStone</title><link rel="stylesheet" href="/assets/styles.css"><script src="/assets/app.js" defer></script></head><body class="statistics-app"><a class="skip-link" href="#main-content">Hoppa till innehåll</a><aside class="app-sidebar"><a class="sidebar-brand" href="/">{_stat_icon("check")}<strong>TickStone</strong></a><nav aria-label="Huvudnavigation"><a class="active" href="#overview">{_stat_icon("grid")}<span>Översikt</span></a><a href="#habits">{_stat_icon("target")}<span>Vanor</span></a><a href="#history">{_stat_icon("history")}<span>Historik</span></a><a href="#settings">{_stat_icon("settings")}<span>Inställningar</span></a></nav><footer><span>TickStone lokal</span><small>Data stannar på din Pi</small></footer></aside><main id="main-content" class="app-main"><header class="app-header" id="overview"><h1>Din statistik</h1><div class="header-controls"><nav class="period-switcher" aria-label="Statistikperiod">{tabs}</nav><div class="date-navigator">{previous_link}<span>{_stat_icon("calendar")}{html.escape(model["period_label"])}</span>{next_link}</div></div></header><section class="stat-cards" aria-label="Periodens nyckeltal">{cards_html}</section><div class="primary-grid"><section class="dashboard-card activity-card" aria-labelledby="activity-heading"><div class="card-heading"><h2 id="activity-heading">{"Veckans" if model["period"] == "week" else "Periodens"} aktivitet</h2><span class="info-dot" title="Normaliserat mot varje habits dagliga mål">i</span></div><div class="stack-chart" role="img" aria-label="Normaliserad aktivitet uppdelad på tillfällen och tid"><div class="chart-y"><span>200</span><span>150</span><span>100</span><span>50</span><span>0</span></div><div class="chart-bars">{bars}</div></div><div class="chart-legend"><span><i class="legend-count"></i>Tillfällen (normaliserat)</span><span><i class="legend-time"></i>Tid (normaliserat)</span><small>100 = ett dagligt mål uppnått</small></div></section><section class="dashboard-card habits-card" id="habits" aria-labelledby="habits-heading"><div class="card-heading"><h2 id="habits-heading">Dina vanor</h2></div><div class="habit-columns" aria-hidden="true"><span></span><span></span><span>Typ</span><span>Progress</span><span>Streak</span><span>Jämfört</span><span></span></div><div class="habit-table">{habit_rows}</div></section></div><div class="secondary-grid"><section class="dashboard-card heatmap-card" id="history" aria-labelledby="heatmap-heading"><div class="card-heading"><h2 id="heatmap-heading">Aktivitet senaste 12 veckorna</h2></div><div class="heatmap-wrap"><div class="heat-week-labels">{''.join(week_labels)}</div><div class="heat-body"><div class="heat-day-labels"><span>Mån</span><span>Tis</span><span>Ons</span><span>Tor</span><span>Fre</span><span>Lör</span><span>Sön</span></div><div class="heat-grid" role="img" aria-label="Aktivitetskalender för de senaste 12 veckorna">{heat_cells}</div></div><div class="heat-legend"><span>Mindre aktivitet</span>{''.join(f'<i class="level-{level}"></i>' for level in range(6))}<span>Mer aktivitet</span></div></div></section><section class="dashboard-card insights-card" aria-labelledby="insights-heading"><div class="card-heading"><h2 id="insights-heading">Insikter</h2><span class="bulb">{_stat_icon("bulb")}</span></div><ul>{insight_html}</ul></section></div><section id="settings" class="sync-footnote"><strong>Synkstatus</strong><span>{html.escape(_metadata_note(model["metadata_status"]))}</span><time>Uppdaterad {html.escape(model["generated_at"])}</time></section></main></body></html>'''
+
+
 def render_dashboard(model):
     summary = model["summary"]
     cards = (("Idag", summary["today"], "aktiviteter"), ("Den här veckan", summary["week"], "aktiviteter"),
@@ -405,15 +730,17 @@ def render_dashboard(model):
 
 def render_habit_detail(model):
     habit = model["habit"]
-    tabs = "".join(f'<a href="/habit/{habit["id"]}?period={period}" class="period-tab{" selected" if model["period"] == period else ""}"{" aria-current=page" if model["period"] == period else ""}>{label}</a>' for period, label in (("week","Vecka"),("month","Månad"),("year","År"),("all","Allt")))
+    tabs = "".join(f'<a href="/habit/{habit["id"]}?period={period}" class="period-option{" selected" if model["period"] == period else ""}"{" aria-current=page" if model["period"] == period else ""}>{label}</a>' for period, label in (("week","Vecka"),("month","Månad"),("year","År"),("all","All tid")))
     trend = model.get("trend_label") or ("Ingen jämförelse ännu" if model["trend"] is None else f'{model["trend"]:+d}% jämfört med föregående period')
     points = "".join(f'<div class="detail-point" aria-label="{html.escape(point["label"])}: {point["value"]}"><div style="--height:{point["height"]}%"></div><span>{html.escape(point["label"][-5:])}</span></div>' for point in model["points"])
     if not points:
-        points = '<p class="empty">Ingen aktivitet under perioden.</p>'
-    metrics = (("Totalt", model["display_value"], model["display_unit"]), ("Aktiva dagar", model["active_days"], "dagar"),
-               ("Snitt", model["average_value"], model["average_unit"]), ("Längsta följd", model["longest_streak"], "dagar"))
-    metric_html = "".join(f'<article class="metric"><span>{label}</span><strong>{html.escape(str(value))}</strong><small>{html.escape(unit)}</small></article>' for label,value,unit in metrics)
-    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>{html.escape(habit["name"])} · TickStone</title><link rel="stylesheet" href="/assets/styles.css"></head><body><a class="skip-link" href="#content">Hoppa till innehåll</a><main id="content" class="shell"><header class="topbar"><a class="back-link" href="/">← Översikt</a><div class="brand"><strong>TickStone</strong></div></header><section class="detail-intro"><p class="eyebrow">{html.escape(habit["code"])}</p><h1>{html.escape(habit["name"].title())}</h1><p>{html.escape(model["period_start"])} – {html.escape(model["period_end"])}</p></section><nav class="period-tabs" aria-label="Period">{tabs}</nav><section class="metrics detail-metrics" aria-label="Habitstatistik">{metric_html}</section><section class="panel detail-chart"><div class="panel-heading"><div><p class="eyebrow">UTVECKLING</p><h2>Aktivitet</h2></div><span>{html.escape(trend)}</span></div><div class="detail-points" role="img" aria-label="Aktivitet per kalenderperiod">{points}</div><div class="detail-facts"><span>{model["sessions"]} aktivitetstillfällen</span><span>Nuvarande följd: {model["current_streak"]} dagar</span><span>Bästa period: {html.escape(model["best_period"] or "—")}</span></div></section><p class="metadata-note">{html.escape(_metadata_note(model["metadata_status"]))}</p></main></body></html>'''
+        points = '<p class="empty-state">Ingen aktivitet under perioden.</p>'
+    metrics = (("Totalt", model["display_value"], model["display_unit"], "target"),
+               ("Aktiva dagar", model["active_days"], "dagar", "calendar"),
+               ("Snitt", model["average_value"], model["average_unit"], "trend"),
+               ("Längsta streak", model["longest_streak"], "dagar", "check"))
+    metric_html = "".join(f'<article class="stat-card"><div class="stat-icon">{_stat_icon(icon)}</div><div class="stat-copy"><span>{html.escape(label)}</span><strong>{html.escape(str(value))}</strong><small>{html.escape(unit)}</small></div></article>' for label,value,unit,icon in metrics)
+    return f'''<!doctype html><html lang="sv"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="theme-color" content="#f7f8f6"><title>{html.escape(habit["name"])} · TickStone</title><link rel="stylesheet" href="/assets/styles.css"></head><body class="statistics-app"><a class="skip-link" href="#main-content">Hoppa till innehåll</a><aside class="app-sidebar"><a class="sidebar-brand" href="/">{_stat_icon("check")}<strong>TickStone</strong></a><nav aria-label="Huvudnavigation"><a href="/">{_stat_icon("grid")}<span>Översikt</span></a><a class="active" href="#habit-detail">{_stat_icon("target")}<span>Vanor</span></a><a href="/#history">{_stat_icon("history")}<span>Historik</span></a><a href="/#settings">{_stat_icon("settings")}<span>Inställningar</span></a></nav><footer><span>TickStone lokal</span><small>Data stannar på din Pi</small></footer></aside><main id="main-content" class="app-main detail-workspace"><header class="detail-header" id="habit-detail"><div><a class="back-link" href="/">← Översikt</a><p>{html.escape(habit["code"])}</p><h1>{html.escape(habit["name"].title())}</h1><span>{html.escape(model["period_start"])} – {html.escape(model["period_end"])}</span></div><nav class="period-switcher" aria-label="Period">{tabs}</nav></header><section class="stat-cards" aria-label="Habitstatistik">{metric_html}</section><section class="dashboard-card modern-detail-chart"><div class="card-heading"><h2>Aktivitet</h2><strong class="detail-trend">{html.escape(trend)}</strong></div><div class="detail-points" role="img" aria-label="Aktivitet per kalenderperiod">{points}</div><div class="detail-facts"><span>{model["sessions"]} aktivitetstillfällen</span><span>Nuvarande streak: {model["current_streak"]} dagar</span><span>Bästa period: {html.escape(model["best_period"] or "—")}</span></div></section><section class="sync-footnote"><strong>Metadata</strong><span>{html.escape(_metadata_note(model["metadata_status"]))}</span></section></main></body></html>'''
 
 
 class DashboardServer(ThreadingHTTPServer):
@@ -449,7 +776,14 @@ def make_handler(database):
             parsed = urlsplit(self.path); path = parsed.path
             try:
                 if path == "/":
-                    self._send(200, "text/html; charset=utf-8", render_dashboard(build_dashboard(database)).encode(), head)
+                    query = parse_qs(parsed.query)
+                    period = query.get("period", ["week"])[0]
+                    try:
+                        offset = int(query.get("offset", ["0"])[0])
+                        model = build_statistics_overview(database, period, offset)
+                    except (ValueError, TypeError):
+                        self._send(400, "text/plain; charset=utf-8", b"Invalid period or offset\n", head); return
+                    self._send(200, "text/html; charset=utf-8", render_statistics_dashboard(model).encode(), head)
                 elif re.fullmatch(r"/habit/[0-9]", path):
                     period = parse_qs(parsed.query).get("period", ["week"])[0]
                     if period not in PERIODS:
