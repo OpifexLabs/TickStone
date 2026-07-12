@@ -139,7 +139,11 @@ Narmaste relevanta gap till att faktiskt sla (inte bara tangera) ett tidigare ve
 visas som milstolpe; nagon permanent rekordpanel finns inte.
 Tidsgrafen kan visas som staplar eller linjer;
 valda habits och diagramtyp sparas i `sessionStorage`. Count-events visas inte i grafen.
-Dashboarden har inga mal, malringar eller malnormaliserade framsteg. Framtida offset avvisas
+Dashboarden har inga mal, malringar eller malnormaliserade framsteg; varken renderingslagret
+eller statistikmodellen beraknar maluppfyllelse. Habitdetaljen binder snapshot-losa legacy-events
+konservativt till den aktuella identitetens `valid_from`, raknar helg/vardag fran TickStone-dygnet
+05:00 och bygger trend enbart fran avslutade veckor. Diagramdata finns aven som en skarmlasarlista
+och en `noscript`-fallback. Framtida kalenderdagar ar semantiskt inaktiverade. Framtida offset avvisas
 och senare-pilen ar inaktiv i aktuell period.
 Habitdetaljen har ett rikt, read-only analyslager med rattvisa vecka/manad-jamforelser,
 milstolpe, fyra nyckeltal, faktiska dag/vecka/manad-diagram, typmedvetna rekord,

@@ -105,6 +105,14 @@
       });
     }
     chart.replaceChildren(svg);
+    const accessibleData = document.getElementById("detail-chart-data");
+    if (accessibleData) {
+      accessibleData.replaceChildren(...points.map(point => {
+        const item = document.createElement("li");
+        item.textContent = `${point.label}: ${formatValue(point.value)}`;
+        return item;
+      }));
+    }
     chart.setAttribute("aria-label", `${chartType === "bar" ? "Stapeldiagram" : "Linjediagram"}. ${yLabel}, ${chartMode}. Högsta värde ${formatValue(maximum)}.`);
   }
 

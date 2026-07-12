@@ -222,6 +222,12 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["log_groups"][0]["date"], "2026-07-12")
         self.assertEqual(model["log_groups"][0]["events"][0]["source"], "TickStone")
         self.assertIn("trend_summary", model)
+        model["calendar"]["cells"][-1]["future"] = True
+        rendered = render_habit_detail(model)
+        self.assertIn('aria-describedby="detail-chart-data"', rendered)
+        self.assertIn('id="detail-chart-data" class="sr-only"', rendered)
+        self.assertIn('<noscript>', rendered)
+        self.assertIn(' future" disabled', rendered)
 
     def test_detail_milestone_requires_beating_previous_week_best(self):
         self.add_habit(1, "MED", "MEDITATION", "time", 10)
@@ -230,6 +236,47 @@ class DashboardDataTest(unittest.TestCase):
         model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-06T12:00:00"))
         self.assertEqual(model["milestone"]["remaining"], 301)
         self.assertIn("5 min 1 sek kvar", model["milestone"]["text"])
+
+    def test_detail_excludes_snapshotless_legacy_events_before_current_identity(self):
+        self.change_habit(0, "RUN", "RUNNING", "count", valid_from=self.epoch("2026-07-01T05:00:00"))
+        self.add(701, 0, "count", "2026-06-30T08:00:00", count=99)
+        self.add(702, 0, "count", "2026-07-02T08:00:00", count=2)
+        with open_store(self.database) as connection, connection:
+            connection.execute("UPDATE events SET config_snapshot_id=NULL WHERE id IN (701,702)")
+        model = build_habit_detail(self.database, 0, "all", self.epoch("2026-07-12T12:00:00"))
+        self.assertEqual(model["total"], 2)
+        self.assertEqual(model["records"]["best_day"]["value"], 2)
+
+    def test_detail_weekend_pattern_uses_tickstone_day_boundary(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", 10)
+        for ident, stamp, duration in (
+            (710, "2026-03-30T02:00:00", 100), (711, "2026-03-29T12:00:00", 100),
+            (712, "2026-03-31T10:00:00", 10), (713, "2026-04-04T02:00:00", 10),
+        ):
+            self.add(ident, 1, "time", stamp, duration=duration)
+        model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-12T14:00:00"))
+        self.assertTrue(any("längre sessioner på helger" in item for item in model["patterns"]))
+
+    def test_detail_trend_uses_only_completed_weeks(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", 10)
+        for ident, stamp, duration in (
+            (720, "2026-06-08T08:00:00", 10), (721, "2026-06-15T08:00:00", 20),
+            (722, "2026-06-22T08:00:00", 30), (723, "2026-06-29T08:00:00", 40),
+            (724, "2026-07-06T08:00:00", 1),
+        ):
+            self.add(ident, 1, "time", stamp, duration=duration)
+        model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-08T12:00:00"))
+        self.assertEqual(model["trend_summary"]["title"], "På väg upp")
+        self.assertIn("avslutade veckorna", model["trend_summary"]["text"])
+
+    def test_detail_week_record_uses_last_contributing_day_and_ties_do_not_create_patterns(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", 10)
+        for ident, stamp in ((730, "2026-06-29T08:00:00"), (731, "2026-07-01T08:00:00"),
+                             (732, "2026-07-06T08:00:00"), (733, "2026-07-08T08:00:00")):
+            self.add(ident, 1, "time", stamp, duration=10)
+        model = build_habit_detail(self.database, 1, "all", self.epoch("2026-07-12T12:00:00"))
+        self.assertEqual(model["records"]["best_week"]["date"], "2026-07-01")
+        self.assertFalse(any("mest konsekventa dag" in item for item in model["patterns"]))
 
     def test_month_year_and_zero_baseline_are_calendar_bounded(self):
         self.add(20, 0, "count", "2024-02-29T08:00:00", count=1)
@@ -319,12 +366,11 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual((previous["period_start"], previous["period_end"]), ("2026-06-29", "2026-07-05"))
         self.assertEqual(model["kpis"]["active_days"], 2)
         self.assertEqual(model["kpis"]["possible_days"], 7)
-        self.assertEqual(model["kpis"]["completion_percent"], 25)
+        self.assertNotIn("completion_percent", model["kpis"])
+        self.assertEqual(model["kpis"]["total_sessions"], 4)
         self.assertEqual(model["kpis"]["total_seconds"], 900)
         self.assertEqual(model["kpis"]["comparison"]["label"], "+300% jämfört med förra veckan")
-        self.assertEqual(len(model["activity"]), 7)
-        self.assertEqual(model["activity"][0]["count_percent"], 100)
-        self.assertEqual(model["activity"][0]["time_percent"], 50)
+        self.assertNotIn("activity", model)
 
     def test_streak_remains_current_when_last_activity_was_yesterday(self):
         self.add(76, 0, "count", "2026-07-11T08:00:00", count=1)
@@ -341,7 +387,7 @@ class DashboardDataTest(unittest.TestCase):
 
         meditation = next(row for row in model["habits"] if row["id"] == 1)
         self.assertEqual((meditation["type_label"], meditation["display_value"]), ("Tid", "10 min"))
-        self.assertEqual(meditation["progress_percent"], 14)
+        self.assertNotIn("progress_percent", meditation)
         self.assertEqual(len(model["heatmap"]["cells"]), 84)
         self.assertEqual(model["heatmap"]["weeks"], 12)
         self.assertTrue(all(0 <= cell["level"] <= 5 for cell in model["heatmap"]["cells"]))
@@ -388,10 +434,12 @@ class DashboardDataTest(unittest.TestCase):
         month = build_statistics_overview(self.database, "month", 0, self.epoch("2024-02-29T12:00:00"))
         year = build_statistics_overview(self.database, "year", 0, self.epoch("2024-02-29T12:00:00"))
         all_time = build_statistics_overview(self.database, "all", 0, self.epoch("2024-02-29T12:00:00"))
-        self.assertEqual((month["period_start"], month["period_end"], len(month["activity"])),
-                         ("2024-02-01", "2024-02-29", 29))
-        self.assertEqual((year["period_start"], year["period_end"], len(year["activity"])),
-                         ("2024-01-01", "2024-12-31", 12))
+        self.assertEqual((month["period_start"], month["period_end"]),
+                         ("2024-02-01", "2024-02-29"))
+        self.assertEqual((year["period_start"], year["period_end"]),
+                         ("2024-01-01", "2024-12-31"))
+        self.assertNotIn("activity", month)
+        self.assertNotIn("activity", year)
         self.assertEqual(all_time["period_label"], "All sparad tid")
         with self.assertRaises(ValueError):
             build_statistics_overview(self.database, "week", 1, self.epoch("2026-07-12T12:00:00"))
