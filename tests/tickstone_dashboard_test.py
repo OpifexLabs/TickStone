@@ -249,6 +249,10 @@ class DashboardDataTest(unittest.TestCase):
                             for item in model["insights"]))
 
         rendered = render_statistics_dashboard(model)
+        model["habits"][0]["current_streak"] = 1
+        singular_rendered = render_statistics_dashboard(model)
+        self.assertIn("1 dags streak", singular_rendered)
+        self.assertNotIn("1 dagars streak", singular_rendered)
         for marker in ('class="app-sidebar"', 'Din statistik', 'Veckans aktivitet', 'Dina vanor',
                        'Aktivitet senaste 12 veckorna', 'Insikter', 'period-switcher', 'habit-performance'):
             self.assertIn(marker, rendered)

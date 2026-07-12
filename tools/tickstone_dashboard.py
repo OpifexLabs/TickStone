@@ -233,6 +233,10 @@ def _duration_compact(seconds):
     return f"{hours} h {minutes:02d} min" if minutes else f"{hours} h"
 
 
+def _streak_label(days):
+    return "1 dags streak" if days == 1 else f"{days} dagars streak"
+
+
 def _period_comparison(current, previous, period):
     if period == "all":
         return {"current": current, "previous": previous, "percent": None, "tone": "flat",
@@ -679,7 +683,7 @@ def render_statistics_dashboard(model):
         f'<span class="habit-symbol" style="--habit-color:{habit["color"]}">{html.escape((habit["code"] or habit["name"][:1]).upper())}</span>'
         f'<strong>{html.escape(habit["name"].title())}</strong><span class="habit-type">{html.escape(habit["type_label"])}</span>'
         f'<span class="habit-progress"><b>{html.escape(habit["display_value"])}</b><i><u style="--progress:{min(100, habit["progress_percent"])}"></u></i></span>'
-        f'<span class="habit-streak">{habit["current_streak"]} dagars streak</span>'
+        f'<span class="habit-streak">{_streak_label(habit["current_streak"])}</span>'
         f'<span class="habit-compare compare-{habit["comparison"]["tone"]}">{html.escape(habit["comparison"]["label"].split(" jämfört")[0])}</span><span class="chevron">›</span></a>'
         for habit in model["habits"]
     ) or '<p class="empty-state">Dina habits visas här efter första synken.</p>'
