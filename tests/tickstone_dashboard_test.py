@@ -187,6 +187,49 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["trend_label"], "+150% jämfört med förra veckan")
         self.assertEqual(model["longest_streak"], 2)
         self.assertEqual(model["average_value"], 2)
+        self.assertEqual(model["trend_summary"]["title"], "Ny rytm")
+
+    def test_rich_time_detail_exposes_comparisons_chart_modes_records_patterns_calendar_and_logs(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", 10)
+        stamps = (
+            (60, "2026-06-15T07:00:00", 600),
+            (61, "2026-06-22T07:00:00", 900),
+            (62, "2026-06-29T07:00:00", 1200),
+            (63, "2026-07-06T07:00:00", 600),
+            (64, "2026-07-07T07:10:00", 1200),
+            (65, "2026-07-08T07:20:00", 1800),
+            (66, "2026-07-11T08:00:00", 2400),
+            (67, "2026-07-12T08:30:00", 600),
+        )
+        for ident, stamp, duration in stamps:
+            self.add(ident, 1, "time", stamp, duration=duration)
+
+        model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-12T12:00:00"))
+
+        self.assertNotIn("goal", model)
+        self.assertEqual(model["comparisons"]["week"]["current"], 6600)
+        self.assertIn("month", model["comparisons"])
+        self.assertEqual(set(model["chart_modes"]), {"day", "week", "month"})
+        self.assertEqual([len(model["chart_modes"][key]) for key in ("day", "week", "month")], [14, 8, 12])
+        self.assertEqual(model["records"]["longest_session"]["value"], 2400)
+        self.assertEqual(model["records"]["best_day"]["value"], 2400)
+        self.assertEqual(model["records"]["best_week"]["value"], 6600)
+        self.assertEqual(model["records"]["longest_streak"]["value"], 3)
+        self.assertTrue(model["records"]["latest_record_date"])
+        self.assertGreaterEqual(len(model["patterns"]), 2)
+        self.assertEqual(len(model["calendar"]["cells"]), 84)
+        self.assertTrue(any(cell["events"] for cell in model["calendar"]["cells"]))
+        self.assertEqual(model["log_groups"][0]["date"], "2026-07-12")
+        self.assertEqual(model["log_groups"][0]["events"][0]["source"], "TickStone")
+        self.assertIn("trend_summary", model)
+
+    def test_detail_milestone_requires_beating_previous_week_best(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", 10)
+        self.add(68, 1, "time", "2026-06-29T08:00:00", duration=900)
+        self.add(69, 1, "time", "2026-07-06T08:00:00", duration=600)
+        model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-06T12:00:00"))
+        self.assertEqual(model["milestone"]["remaining"], 301)
+        self.assertIn("5 min 1 sek kvar", model["milestone"]["text"])
 
     def test_month_year_and_zero_baseline_are_calendar_bounded(self):
         self.add(20, 0, "count", "2024-02-29T08:00:00", count=1)
@@ -326,6 +369,7 @@ class DashboardDataTest(unittest.TestCase):
         self.assertIn('href="/?period=month&amp;offset=0"', rendered)
         self.assertIn('aria-label="Föregående period"', rendered)
         self.assertIn('momentum-card', rendered)
+        self.assertNotIn('mål', rendered.lower())
         self.assertIn('comparison-pair', rendered)
         self.assertIn('>V: <', rendered)
         self.assertIn('>M: <', rendered)
@@ -523,7 +567,7 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
         self.assertIn("grid-template-columns: repeat(12,minmax(0,1fr))", css)
         self.assertIn("--paper: #f4f2ed", css)
-        self.assertIn("width: min(3000px", css)
+        self.assertIn("width: min(1800px", css)
         self.assertIn(".record-insight", css)
         self.assertIn("@keyframes record-accent", css)
         self.assertIn("--heat-row: clamp(12px", css)
@@ -554,18 +598,30 @@ class DashboardRenderTest(unittest.TestCase):
                  "points": [{"label": "2026-07-07", "value": 2, "height": 100}]}
         rendered = render_habit_detail(model)
         self.assertNotIn("<script>", rendered)
-        self.assertIn("&lt;script&gt;", rendered)
+        self.assertIn("&lt;Script&gt;", rendered)
         self.assertIn('/habit/0?period=month', rendered)
         self.assertIn('aria-current=page', rendered)
-        self.assertIn('class="statistics-app"', rendered)
+        self.assertIn('statistics-app', rendered)
         self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('class="workspace-brand"', rendered)
-        self.assertIn('detail-workspace', rendered)
+        self.assertIn('rich-detail-workspace', rendered)
         self.assertIn('id="detail-chart"', rendered)
         self.assertIn('data-detail-chart-type="bar"', rendered)
         self.assertIn('data-detail-chart-type="line"', rendered)
+        self.assertIn('data-chart-mode="day"', rendered)
+        self.assertIn('data-chart-mode="week"', rendered)
+        self.assertIn('data-chart-mode="month"', rendered)
         self.assertIn('data-y-label="Tillfällen"', rendered)
-        self.assertIn('data-value="2"', rendered)
+        self.assertIn('data-chart-modes=', rendered)
+        self.assertIn('Personliga rekord', rendered)
+        self.assertIn('Veckoförändring', rendered)
+        self.assertIn('Bästa vecka', rendered)
+        self.assertIn('Lugnaste aktiva vecka', rendered)
+        self.assertIn('Dina mönster', rendered)
+        self.assertIn('habit-calendar-grid', rendered)
+        self.assertIn('Senaste loggar', rendered)
+        self.assertNotIn('veckomålet', rendered)
+        self.assertNotIn('måluppfyllelse', rendered.lower())
         self.assertIn('/assets/detail-chart.js', rendered)
 
 
