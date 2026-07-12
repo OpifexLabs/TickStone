@@ -24,6 +24,14 @@ PERIODS = ("week", "month", "year", "all")
 TIMELINE_RANGES = ("week", "month", "year")
 SERIES_COLORS = ("#496d55", "#b06f4f", "#5f7296", "#92705f", "#7a6f9b",
                  "#4f8581", "#b28a3f", "#7d8550", "#965e6d", "#66717a")
+CURRENT_IDENTITY_JOINS = """LEFT JOIN habits h ON h.slot_id=e.habit_id
+    LEFT JOIN habit_snapshots current_s ON current_s.id=h.current_snapshot_id"""
+CURRENT_IDENTITY_PREDICATE = """AND (h.slot_id IS NULL OR (h.active=1 AND e.type=h.type AND (
+    (e.config_snapshot_id IS NOT NULL AND EXISTS(
+        SELECT 1 FROM habit_snapshot_entries current_se
+         WHERE current_se.snapshot_id=e.config_snapshot_id AND current_se.slot_id=e.habit_id
+           AND current_se.active=1 AND current_se.code=h.code AND current_se.name=h.name AND current_se.type=h.type))
+    OR (e.config_snapshot_id IS NULL AND (current_s.valid_from IS NULL OR e.started_at>=current_s.valid_from)))))"""
 
 
 @contextmanager
@@ -230,9 +238,11 @@ def build_time_chart(database, period="week", offset=0, now_epoch=None):
         ).fetchall()
         bucket_sql = "substr(tickstone_day,1,7)" if period in ("year", "all") else "tickstone_day"
         rows = connection.execute(
-            f"""SELECT habit_id,{bucket_sql} AS bucket,SUM(duration_seconds) AS seconds
-                  FROM events WHERE deleted=0 AND type='time' AND started_at<? AND tickstone_day>=? AND tickstone_day<?
-                 GROUP BY habit_id,bucket ORDER BY habit_id,bucket""",
+            f"""SELECT e.habit_id,{bucket_sql.replace('tickstone_day', 'e.tickstone_day')} AS bucket,SUM(e.duration_seconds) AS seconds
+                  FROM events e {CURRENT_IDENTITY_JOINS}
+                 WHERE e.deleted=0 AND e.type='time' AND e.started_at<? AND e.tickstone_day>=? AND e.tickstone_day<?
+                   {CURRENT_IDENTITY_PREDICATE}
+                 GROUP BY e.habit_id,bucket ORDER BY e.habit_id,bucket""",
             (now_epoch, start.isoformat(), end.isoformat()),
         ).fetchall()
     if period in ("year", "all"):
@@ -593,30 +603,37 @@ def build_statistics_overview(database, period="week", offset=0, now_epoch=None)
                 GROUP BY e.habit_id ORDER BY id"""
         ).fetchall()
         current_rows = connection.execute(
-            """SELECT habit_id,tickstone_day,type,COUNT(*) AS sessions,
-                      COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
-                      COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
-                 FROM events WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<?
-                GROUP BY habit_id,tickstone_day,type ORDER BY tickstone_day,habit_id""",
+            f"""SELECT e.habit_id,e.tickstone_day,e.type,COUNT(*) AS sessions,
+                      COALESCE(SUM(CASE WHEN e.type='count' THEN e.count ELSE 0 END),0) AS count_total,
+                      COALESCE(SUM(CASE WHEN e.type='time' THEN e.duration_seconds ELSE 0 END),0) AS seconds
+                 FROM events e {CURRENT_IDENTITY_JOINS}
+                WHERE e.deleted=0 AND e.started_at<? AND e.tickstone_day>=? AND e.tickstone_day<?
+                  {CURRENT_IDENTITY_PREDICATE}
+                GROUP BY e.habit_id,e.tickstone_day,e.type ORDER BY e.tickstone_day,e.habit_id""",
             (now_epoch, start.isoformat(), end.isoformat()),
         ).fetchall()
         previous_rows = connection.execute(
-            """SELECT habit_id,type,COUNT(*) AS sessions,
-                      COALESCE(SUM(CASE WHEN type='count' THEN count ELSE 0 END),0) AS count_total,
-                      COALESCE(SUM(CASE WHEN type='time' THEN duration_seconds ELSE 0 END),0) AS seconds
-                 FROM events WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<?
-                GROUP BY habit_id,type""", (now_epoch, previous[0].isoformat(), previous[1].isoformat()),
+            f"""SELECT e.habit_id,e.type,COUNT(*) AS sessions,
+                      COALESCE(SUM(CASE WHEN e.type='count' THEN e.count ELSE 0 END),0) AS count_total,
+                      COALESCE(SUM(CASE WHEN e.type='time' THEN e.duration_seconds ELSE 0 END),0) AS seconds
+                 FROM events e {CURRENT_IDENTITY_JOINS}
+                WHERE e.deleted=0 AND e.started_at<? AND e.tickstone_day>=? AND e.tickstone_day<?
+                  {CURRENT_IDENTITY_PREDICATE}
+                GROUP BY e.habit_id,e.type""", (now_epoch, previous[0].isoformat(), previous[1].isoformat()),
         ).fetchall()
         heat_end = min(end - timedelta(days=1), today)
         heat_end += timedelta(days=6 - heat_end.weekday())
         heat_start = heat_end - timedelta(days=83)
         heat_rows = connection.execute(
-            """SELECT tickstone_day,COUNT(*) AS sessions FROM events
-                WHERE deleted=0 AND started_at<? AND tickstone_day>=? AND tickstone_day<=? GROUP BY tickstone_day""",
+            f"""SELECT e.tickstone_day,COUNT(*) AS sessions FROM events e {CURRENT_IDENTITY_JOINS}
+                WHERE e.deleted=0 AND e.started_at<? AND e.tickstone_day>=? AND e.tickstone_day<=?
+                  {CURRENT_IDENTITY_PREDICATE} GROUP BY e.tickstone_day""",
             (now_epoch, heat_start.isoformat(), heat_end.isoformat()),
         ).fetchall()
         streak_rows = connection.execute(
-            "SELECT habit_id,tickstone_day FROM events WHERE deleted=0 AND started_at<? GROUP BY habit_id,tickstone_day ORDER BY habit_id,tickstone_day",
+            f"""SELECT e.habit_id,e.tickstone_day FROM events e {CURRENT_IDENTITY_JOINS}
+                WHERE e.deleted=0 AND e.started_at<? {CURRENT_IDENTITY_PREDICATE}
+                GROUP BY e.habit_id,e.tickstone_day ORDER BY e.habit_id,e.tickstone_day""",
             (now_epoch,),
         ).fetchall()
         metadata_status = _metadata_status(connection)

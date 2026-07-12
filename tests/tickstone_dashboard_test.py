@@ -247,6 +247,21 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["total"], 2)
         self.assertEqual(model["records"]["best_day"]["value"], 2)
 
+    def test_overview_and_time_chart_share_current_identity_boundary(self):
+        self.add_habit(1, "OLD", "OLD TIMER", "time", 10)
+        self.change_habit(1, "NEW", "NEW TIMER", "time", 10, valid_from=self.epoch("2026-07-10T05:00:00"))
+        self.add(740, 1, "time", "2026-07-06T08:00:00", duration=99)
+        self.add(741, 1, "time", "2026-07-11T08:00:00", duration=2)
+        with open_store(self.database) as connection, connection:
+            connection.execute("UPDATE events SET config_snapshot_id=NULL WHERE id IN (740,741)")
+
+        overview = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+        chart = build_time_chart(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
+
+        self.assertEqual(overview["kpis"]["total_seconds"], 2)
+        self.assertEqual(next(item for item in overview["habits"] if item["id"] == 1)["display_value"], "2 sek")
+        self.assertEqual(chart["total_seconds"], 2)
+
     def test_detail_weekend_pattern_uses_tickstone_day_boundary(self):
         self.add_habit(1, "MED", "MEDITATION", "time", 10)
         for ident, stamp, duration in (
