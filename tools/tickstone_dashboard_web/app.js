@@ -68,8 +68,8 @@
     }
 
     const width = Math.max(420, chart.clientWidth || 620);
-    const height = 280;
-    const margin = { top: 16, right: 12, bottom: 34, left: 44 };
+    const height = 162;
+    const margin = { top: 10, right: 10, bottom: 27, left: 38 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const maximum = Math.max(1, ...series.flatMap(item => item.values));

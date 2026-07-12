@@ -357,7 +357,13 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
         self.assertIn("grid-template-columns: repeat(12,minmax(0,1fr))", css)
         self.assertIn("--paper: #f4f2ed", css)
+        self.assertIn("--heat-row: 13px", css)
+        self.assertGreaterEqual(css.count("grid-template-rows: repeat(7,var(--heat-row))"), 2)
+        self.assertIn("min-height: 72px", css)
+        self.assertIn("@media (min-width: 761px)", css)
+        self.assertIn("grid-template-columns: repeat(4,minmax(0,1fr))", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
+        self.assertIn("const height = 162", script)
         self.assertIn("Math.min(4, maximum)", script)
         self.assertIn("tickCount", script)
 
