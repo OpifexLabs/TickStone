@@ -400,6 +400,7 @@ details.dashboard-card>summary::-webkit-details-marker { display:none; }
 .modern-detail-chart .card-heading > div:first-child { display: grid; gap: 3px; }
 .modern-detail-chart .detail-points { margin: 0 18px; min-height: 250px; }
 #detail-chart { display: block; height: clamp(250px,34vh,330px); padding: 0; overflow: hidden; }
+.rich-detail-chart#detail-chart { height:190px; }
 #detail-chart svg { display: block; width: 100%; height: 100%; }
 .detail-grid-line { stroke: rgba(67,69,62,.14); stroke-width: 1; vector-effect: non-scaling-stroke; }
 .detail-axis-label { fill: #6d716a; font: 10px ui-sans-serif,system-ui,sans-serif; }
