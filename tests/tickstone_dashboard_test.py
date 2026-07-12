@@ -303,6 +303,8 @@ class DashboardDataTest(unittest.TestCase):
         self.assertIn('aria-label="Föregående period"', rendered)
         self.assertIn('<strong>Ny</strong><span>aktivitet den här veckan</span>', rendered)
         self.assertIn('title="Ny aktivitet den här veckan">Ny</span>', rendered)
+        self.assertNotIn('<span>Typ</span>', rendered)
+        self.assertIn('class="habit-streak" title="0 dagars streak">0</span>', rendered)
         self.assertNotIn('class="stack-count"', rendered)
         self.assertNotIn("https://", rendered)
 
@@ -358,16 +360,17 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
         self.assertIn("grid-template-columns: repeat(12,minmax(0,1fr))", css)
         self.assertIn("--paper: #f4f2ed", css)
-        self.assertIn("--heat-row: clamp(13px", css)
+        self.assertIn("--heat-row: clamp(12px", css)
         self.assertGreaterEqual(css.count("grid-template-rows: repeat(7,var(--heat-row))"), 2)
         self.assertIn("--stat-height: clamp(72px", css)
         self.assertIn(".time-activity-card .chart-loading { min-height: var(--chart-height)", css)
         self.assertIn("@media (min-width: 761px)", css)
         self.assertIn("grid-template-columns: repeat(4,minmax(0,1fr))", css)
-        self.assertIn("--chart-height: clamp(162px", css)
-        self.assertIn("--heat-row: clamp(13px", css)
-        self.assertIn("grid-template-columns: minmax(0,1.7fr) minmax(390px,.9fr)", css)
-        self.assertIn("30px minmax(78px,1fr) 40px minmax(70px,.8fr)", css)
+        self.assertIn("--chart-height: clamp(150px", css)
+        self.assertIn("--heat-row: clamp(12px", css)
+        symmetric_columns = "grid-template-columns: minmax(0,1.7fr) minmax(390px,.9fr)"
+        self.assertGreaterEqual(css.count(symmetric_columns), 2)
+        self.assertIn("30px minmax(94px,1fr) minmax(76px,.8fr)", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
         self.assertIn("labelStep", script)
         self.assertIn('data.period === "month"', script)
@@ -392,6 +395,12 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('class="workspace-brand"', rendered)
         self.assertIn('detail-workspace', rendered)
+        self.assertIn('id="detail-chart"', rendered)
+        self.assertIn('data-detail-chart-type="bar"', rendered)
+        self.assertIn('data-detail-chart-type="line"', rendered)
+        self.assertIn('data-y-label="Tillfällen"', rendered)
+        self.assertIn('data-value="2"', rendered)
+        self.assertIn('/assets/detail-chart.js', rendered)
 
 
 class DashboardHttpTest(unittest.TestCase):
@@ -422,7 +431,8 @@ class DashboardHttpTest(unittest.TestCase):
 
     def test_dashboard_health_assets_and_security_headers(self):
         for path, content_type in (("/", "text/html"), ("/assets/styles.css", "text/css"),
-                                   ("/assets/app.js", "text/javascript")):
+                                   ("/assets/app.js", "text/javascript"),
+                                   ("/assets/detail-chart.js", "text/javascript")):
             status, headers, body = self.request("GET", path)
             self.assertEqual(status, 200)
             self.assertIn(content_type, headers["Content-Type"])
