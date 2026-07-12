@@ -133,9 +133,12 @@ Count-habits har dagsmal 1; time-habits anvander firmwarets
 `default_minutes`. Daglig uppfyllelse kapas vid 100 procent sa att en extrem dag inte kan
 dolja missade dagar. Framtida offset avvisas och senare-pilen ar inaktiv i aktuell period.
 Habitdetaljerna anvander samma navigationsskal och visuella system som oversikten.
-Vid iPad-landskap (1024x768) anvander oversikten ett kompakt fyrkortsrad, 162 px tidsdiagram
-och en 12x7-heatmap med fasta 13 px rader, sa att oversikt, heatmap, insikter och synkstatus
-ryms pa den forsta vyn utan vertikal scrollning.
+Vid iPad-landskap (1024x768) anvander oversikten en kompakt fyrkortsrad, minst 162 px tidsdiagram
+och en 12x7-heatmap med minst 13 px rader, sa att oversikt, heatmap, insikter och synkstatus
+ryms pa den forsta vyn utan vertikal scrollning. Pa hogre skarmar vaxer branding, KPI-kort,
+tidsdiagram och heatmaprader responsivt till begransade maxhojder. Tidsdiagrammet anvander den
+storre delen av primarraden, medan habit-tabellen ar kompakt och manadens x-axeetiketter glesas
+ut efter tillganglig bredd.
 
 - LAN: `http://192.168.86.29:8750`
 - Tailscale: `http://100.111.154.107:8750`

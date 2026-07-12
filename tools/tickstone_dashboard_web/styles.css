@@ -392,9 +392,15 @@ footer { display: flex; justify-content: space-between; padding: 30px 2px 0; col
 }
 
 /* iPad-first compact density: keep the complete dashboard above the fold. */
-.statistics-app { --heat-row: 13px; --heat-gap: 3px; }
+.statistics-app {
+  --chart-height: clamp(162px, calc(36vh - 114px), 260px);
+  --heat-row: clamp(13px, calc(2vh - 2px), 19px);
+  --stat-height: clamp(72px, calc(9vh + 3px), 96px);
+  --brand-height: clamp(36px, 4.5vh, 48px);
+  --heat-gap: 3px;
+}
 .workspace-shell { padding-top: 9px; padding-bottom: 12px; }
-.workspace-brand { min-height: 36px; gap: 9px; padding: 0 2px 8px; }
+.workspace-brand { min-height: var(--brand-height); gap: 9px; padding: 0 2px 8px; }
 .workspace-brand svg { width: 21px; height: 21px; }
 .workspace-brand strong { font-size: 19px; }
 .workspace-brand > span { font-size: 11px; }
@@ -423,14 +429,14 @@ footer { display: flex; justify-content: space-between; padding: 30px 2px 0; col
   .statistics-app .date-navigator > span { min-width: 132px; font-size: 11px; }
   .statistics-app .period-arrow { width: 27px; height: 27px; font-size: 25px; }
   .statistics-app .stat-cards { grid-template-columns: repeat(4,minmax(0,1fr)); gap: 9px; margin-bottom: 9px; }
-  .statistics-app .stat-card { min-height: 72px; gap: 9px; padding: 9px 11px; }
+  .statistics-app .stat-card { min-height: var(--stat-height); gap: 9px; padding: 9px 11px; }
   .statistics-app .stat-icon { flex-basis: 40px; width: 40px; height: 40px; }
   .statistics-app .stat-icon svg { width: 23px; height: 23px; }
   .statistics-app .stat-copy strong { font-size: clamp(22px,2.4vw,29px); }
   .statistics-app .stat-copy span { margin-top: 1px; font-size: 11px; }
   .statistics-app .stat-copy small { margin-top: 2px; font-size: 8px; }
   .statistics-app .stat-card > b { right: 8px; top: 7px; padding: 2px 5px; font-size: 9px; }
-  .statistics-app .primary-grid { grid-template-columns: minmax(0,.92fr) minmax(0,1.08fr); gap: 9px; margin-bottom: 9px; }
+  .statistics-app .primary-grid { grid-template-columns: minmax(0,1.7fr) minmax(390px,.9fr); gap: 9px; margin-bottom: 9px; }
   .statistics-app .secondary-grid { grid-template-columns: minmax(0,1.45fr) minmax(250px,.75fr); gap: 9px; }
   .statistics-app .activity-card { min-height: 0; }
   .statistics-app .card-heading { padding: 10px 14px 7px; }
@@ -439,12 +445,13 @@ footer { display: flex; justify-content: space-between; padding: 30px 2px 0; col
   .statistics-app .time-series-toggles { gap: 5px; padding: 0 12px 5px; }
   .statistics-app .time-series-toggle { padding: 4px 7px; font-size: 9px; }
   .statistics-app .chart-type-switch button { min-height: 27px; padding: 0 9px; font-size: 9px; }
-  .statistics-app #time-chart { min-height: 162px; margin: 0 8px; }
-  .statistics-app .time-activity-card .chart-loading { min-height: 162px; font-size: 14px; }
-  .statistics-app #time-chart svg { height: 162px; }
+  .statistics-app #time-chart { min-height: var(--chart-height); height: var(--chart-height); margin: 0 8px; }
+  .statistics-app .time-activity-card .chart-loading { min-height: var(--chart-height); font-size: 14px; }
+  .statistics-app #time-chart svg { height: var(--chart-height); }
   .statistics-app .time-activity-card .chart-caption { margin: 2px 12px 8px; font-size: 8px; }
-  .statistics-app .habit-columns { padding: 0 12px 5px; font-size: 8px; }
-  .statistics-app .habit-performance { min-height: 48px; padding: 5px 12px; font-size: 9px; }
+  .statistics-app .habit-columns, .statistics-app .habit-performance { grid-template-columns: 30px minmax(78px,1fr) 40px minmax(70px,.8fr) minmax(64px,.7fr) 40px 14px; gap: 6px; }
+  .statistics-app .habit-columns { padding: 0 10px 5px; font-size: 8px; }
+  .statistics-app .habit-performance { min-height: 48px; padding: 5px 10px; font-size: 9px; }
   .statistics-app .habit-performance > strong { font-size: 10px; }
   .statistics-app .habit-symbol { width: 27px; height: 27px; font-size: 7px; }
   .statistics-app .habit-progress b { font-size: 9px; }

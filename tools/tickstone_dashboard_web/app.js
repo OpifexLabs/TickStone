@@ -35,7 +35,9 @@
   }
 
   function shortLabel(label) {
-    if (/^\d{4}-\d{2}-\d{2}$/.test(label)) return label.slice(5);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(label)) {
+      return data && data.period === "month" ? label.slice(8) : label.slice(5);
+    }
     if (/^\d{4}-\d{2}$/.test(label)) return label.slice(2);
     return label;
   }
@@ -68,7 +70,7 @@
     }
 
     const width = Math.max(420, chart.clientWidth || 620);
-    const height = 162;
+    const height = Math.round(parseFloat(getComputedStyle(chart).height)) || 162;
     const margin = { top: 10, right: 10, bottom: 27, left: 38 };
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
@@ -84,9 +86,12 @@
     }
 
     const bucketWidth = plotWidth / Math.max(1, data.labels.length);
+    const maximumLabels = Math.max(2, Math.floor(plotWidth / 38));
+    const labelStep = Math.max(1, Math.ceil(data.labels.length / maximumLabels));
     data.labels.forEach((label, index) => {
+      if (index % labelStep !== 0 && index !== data.labels.length - 1) return;
       const x = margin.left + bucketWidth * (index + 0.5);
-      svg.append(node("text", { x, y: height - 10, "text-anchor": "middle", class: "time-axis-label" }, shortLabel(label)));
+      svg.append(node("text", { x, y: height - 8, "text-anchor": "middle", class: "time-axis-label" }, shortLabel(label)));
     });
 
     if (chartType === "bar") {
