@@ -671,6 +671,8 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertNotIn('veckomålet', rendered)
         self.assertNotIn('måluppfyllelse', rendered.lower())
         self.assertIn('/assets/detail-chart.js', rendered)
+        detail_script = (ROOT / "tools" / "tickstone_dashboard_web" / "detail-chart.js").read_text()
+        self.assertIn("Math.min(4, Math.floor(maximum))", detail_script)
 
 
 class DashboardHttpTest(unittest.TestCase):

@@ -62,7 +62,7 @@
     const plotWidth = width - margin.left - margin.right;
     const plotHeight = height - margin.top - margin.bottom;
     const maximum = Math.max(1, ...points.map(point => Number(point.value) || 0));
-    const tickCount = valueKind === "count" ? Math.max(1, Math.min(4, maximum)) : 4;
+    const tickCount = Math.max(1, Math.min(4, Math.floor(maximum)));
     const bucketWidth = plotWidth / points.length;
     const svg = node("svg", { viewBox: `0 0 ${width} ${height}`, "aria-hidden": "true" });
 
