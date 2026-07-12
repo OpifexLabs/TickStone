@@ -127,7 +127,14 @@ aktivitetstillfallen, medan habitdetaljer fortsatter anvanda habitens riktiga en
 Huvudvyn ar en periodstyrd statistikarbetsyta med `period=week|month|year|all` och
 bakatriktad `offset`. Den visar aktiva dagar, malnormaliserad genomforandegrad, total tid,
 kalenderjamforelse, faktisk tidsaktivitet per vald time-habit, klickbara habitresultat,
-12-veckors heatmap och datagrundade insikter. Tidsgrafen kan visas som staplar eller linjer;
+12-veckors heatmap och datagrundade insikter. Habitjamforelsen visar bade vecka och manad mot
+exakt samma forflutna lokala tid i foregaende period (`V: +N%`, `M: -N%`) med separata
+positiva/negativa toner. Momentumkortet rankar den starkaste positiva utvecklingen mot samma
+veckodag och klockslag forra veckan, i stallet for att jamfora en ofullstandig vecka med en hel.
+Personliga rekord beraknas for streak, vecka, dagstillfallen, tidssession och veckotid men visas
+bara som en tillfallig insikt nar en tidigare baseline faktiskt slas. Narmaste relevanta gap till
+ett tidigare veckorekord kan visas som milstolpe; nagon permanent rekordpanel finns inte.
+Tidsgrafen kan visas som staplar eller linjer;
 valda habits och diagramtyp sparas i `sessionStorage`. Count-events visas inte i grafen.
 Count-habits har dagsmal 1; time-habits anvander firmwarets
 `default_minutes`. Daglig uppfyllelse kapas vid 100 procent sa att en extrem dag inte kan
@@ -135,7 +142,8 @@ dolja missade dagar. Framtida offset avvisas och senare-pilen ar inaktiv i aktue
 Habitdetaljerna anvander samma navigationsskal och visuella system som oversikten.
 Vid iPad-landskap (1024x768) anvander oversikten en kompakt fyrkortsrad, minst 150 px tidsdiagram
 och en 12x7-heatmap med minst 12 px rader, sa att oversikt, heatmap, insikter och synkstatus
-ryms pa den forsta vyn utan vertikal scrollning. Pa hogre skarmar vaxer branding, KPI-kort,
+ryms pa den forsta vyn utan vertikal scrollning. Arbetsytans maxbredd ar 3000 px, sa vanliga och
+breda desktopskarmar anvander nastan hela den tillgangliga bredden. Pa hogre skarmar vaxer branding, KPI-kort,
 tidsdiagram och heatmaprader responsivt till begransade maxhojder. Tidsdiagrammet anvander den
 storre delen av primarraden, och samma kolumnfordelning anvands for 12-veckorsmatrisen sa att
 vansterkorten ar exakt lika breda. Habit-tabellen ar kompakt utan typkolumn och visar streak som

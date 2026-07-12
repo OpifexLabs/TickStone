@@ -19,6 +19,7 @@ from tools.tickstone_store import ingest_event, open_store  # noqa: E402
 from tools.tickstone_dashboard import (  # noqa: E402
     DashboardServer,
     build_dashboard,
+    build_dashboard_intelligence,
     build_habit_detail,
     build_statistics_overview,
     build_time_chart,
@@ -285,8 +286,14 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["heatmap"]["weeks"], 12)
         self.assertTrue(all(0 <= cell["level"] <= 5 for cell in model["heatmap"]["cells"]))
         self.assertTrue(model["insights"])
-        self.assertTrue(all(item["text"] and item["kind"] in ("calendar", "trend", "consistency")
+        self.assertTrue(all(item["text"] and item["kind"] in ("calendar", "trend", "consistency", "record", "milestone")
                             for item in model["insights"]))
+        self.assertIn("week", meditation["comparisons"])
+        self.assertIn("month", meditation["comparisons"])
+        model["habits"][0]["comparisons"] = {
+            "week": {"display": "+4%", "tone": "up"},
+            "month": {"display": "-7%", "tone": "down"},
+        }
 
         rendered = render_statistics_dashboard(model)
         model["habits"][0]["current_streak"] = 1
@@ -301,12 +308,20 @@ class DashboardDataTest(unittest.TestCase):
         self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('href="/?period=month&amp;offset=0"', rendered)
         self.assertIn('aria-label="Föregående period"', rendered)
-        self.assertIn('<strong>Ny</strong><span>aktivitet den här veckan</span>', rendered)
-        self.assertIn('title="Ny aktivitet den här veckan">Ny</span>', rendered)
+        self.assertIn('momentum-card', rendered)
+        self.assertIn('comparison-pair', rendered)
+        self.assertIn('>V: <', rendered)
+        self.assertIn('>M: <', rendered)
+        self.assertIn('class="compare-up">+4%</em>', rendered)
+        self.assertIn('class="compare-down">-7%</em>', rendered)
         self.assertNotIn('<span>Typ</span>', rendered)
         self.assertIn('class="habit-streak" title="0 dagars streak">0</span>', rendered)
         self.assertNotIn('class="stack-count"', rendered)
         self.assertNotIn("https://", rendered)
+        model["insights"] = [{"kind": "record", "text": "Nytt rekord: 12 min meditation"}]
+        record_rendered = render_statistics_dashboard(model)
+        self.assertIn('class="record-insight"', record_rendered)
+        self.assertIn("Nytt rekord: 12 min meditation", record_rendered)
 
     def test_reference_overview_supports_month_year_all_and_rejects_future_offsets(self):
         month = build_statistics_overview(self.database, "month", 0, self.epoch("2024-02-29T12:00:00"))
@@ -321,6 +336,68 @@ class DashboardDataTest(unittest.TestCase):
             build_statistics_overview(self.database, "week", 1, self.epoch("2026-07-12T12:00:00"))
         with self.assertRaises(ValueError):
             build_statistics_overview(self.database, "decade", 0, self.epoch("2026-07-12T12:00:00"))
+
+    def test_intelligence_uses_same_elapsed_week_and_month_cutoffs(self):
+        self.add_habit(1, "STA", "STADA", "time", default_minutes=10)
+        self.add(100, 0, "count", "2026-07-06T08:00:00", count=2)
+        self.add(101, 0, "count", "2026-07-12T10:00:00", count=4)
+        self.add(102, 1, "time", "2026-07-11T10:00:00", duration=600)
+        self.add(103, 0, "count", "2026-07-05T10:00:00", count=4)
+        self.add(104, 2, "count", "2026-07-05T13:00:00", count=100)
+        self.add(105, 1, "time", "2026-07-04T10:00:00", duration=300)
+        self.add(106, 0, "count", "2026-06-01T08:00:00", count=6)
+        self.add(107, 0, "count", "2026-06-12T10:00:00", count=6)
+        self.add(108, 0, "count", "2026-06-12T13:00:00", count=100)
+        self.add(109, 1, "time", "2026-06-10T10:00:00", duration=1200)
+
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-12T12:00:00"))
+        count = next(item for item in model["habit_comparisons"] if item["id"] == 0)
+        timed = next(item for item in model["habit_comparisons"] if item["id"] == 1)
+
+        self.assertEqual(count["week"], {"current": 6, "previous": 4, "percent": 50, "display": "+50%", "tone": "up"})
+        self.assertEqual(count["month"], {"current": 10, "previous": 12, "percent": -17, "display": "-17%", "tone": "down"})
+        self.assertEqual(timed["week"]["display"], "+100%")
+        self.assertEqual(timed["month"]["display"], "-25%")
+        self.assertEqual(model["cutoffs"]["week"]["current_end"], self.epoch("2026-07-12T12:00:00"))
+        self.assertEqual(model["cutoffs"]["week"]["previous_end"], self.epoch("2026-07-05T12:00:00"))
+
+    def test_intelligence_preserves_local_wall_clock_across_dst(self):
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-04-05T12:00:00"))
+        self.assertEqual(model["cutoffs"]["week"]["previous_end"], self.epoch("2026-03-29T12:00:00"))
+        self.assertEqual(model["cutoffs"]["month"]["previous_end"], self.epoch("2026-03-05T12:00:00"))
+
+    def test_intelligence_builds_momentum_records_and_relevant_milestone(self):
+        self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
+        self.add(120, 0, "count", "2026-06-22T08:00:00", count=3)
+        self.add(121, 0, "count", "2026-06-23T08:00:00", count=1)
+        self.add(122, 1, "time", "2026-06-22T09:00:00", duration=600)
+        self.add(123, 1, "time", "2026-06-23T09:00:00", duration=300)
+        self.add(124, 0, "count", "2026-06-29T08:00:00", count=1)
+        self.add(125, 0, "count", "2026-07-06T08:00:00", count=4)
+        self.add(126, 1, "time", "2026-07-07T09:00:00", duration=720)
+        self.add(127, 0, "count", "2026-07-08T08:00:00", count=1)
+
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-08T12:00:00"))
+
+        self.assertEqual(model["momentum"]["label"], "På väg upp")
+        self.assertIn("ökade", model["momentum"]["detail"])
+        records = model["personal_records"]
+        self.assertEqual(records["longest_streak"]["value"], 2)
+        self.assertEqual(records["best_week"]["value"], 4)
+        self.assertEqual(records["most_count_day"]["value"], 4)
+        self.assertEqual(records["longest_time_session"]["value"], 720)
+        self.assertEqual(records["most_total_time_week"]["value"], 900)
+        self.assertIn("longest_time_session", {item["kind"] for item in model["new_records"]})
+        self.assertTrue(model["record_insight"]["text"].startswith("Nytt rekord:"))
+        self.assertEqual(model["milestone"]["remaining"], 180)
+        self.assertIn("3 min kvar till nytt personbästa", model["milestone"]["text"])
+
+    def test_intelligence_requires_a_prior_baseline_before_announcing_record(self):
+        self.add(130, 0, "count", "2026-07-06T08:00:00", count=1)
+        model = build_dashboard_intelligence(self.database, self.epoch("2026-07-06T12:00:00"))
+        self.assertEqual(model["new_records"], [])
+        self.assertIsNone(model["record_insight"])
+        self.assertIsNone(model["milestone"])
 
 
 class DashboardRenderTest(unittest.TestCase):
@@ -360,6 +437,9 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("38px minmax(82px,1.2fr) minmax(48px,.6fr)", css)
         self.assertIn("grid-template-columns: repeat(12,minmax(0,1fr))", css)
         self.assertIn("--paper: #f4f2ed", css)
+        self.assertIn("width: min(3000px", css)
+        self.assertIn(".record-insight", css)
+        self.assertIn("@keyframes record-accent", css)
         self.assertIn("--heat-row: clamp(12px", css)
         self.assertGreaterEqual(css.count("grid-template-rows: repeat(7,var(--heat-row))"), 2)
         self.assertIn("--stat-height: clamp(72px", css)
@@ -370,7 +450,7 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("--heat-row: clamp(12px", css)
         symmetric_columns = "grid-template-columns: minmax(0,1.7fr) minmax(390px,.9fr)"
         self.assertGreaterEqual(css.count(symmetric_columns), 2)
-        self.assertIn("30px minmax(94px,1fr) minmax(76px,.8fr)", css)
+        self.assertIn("30px minmax(76px,1fr) minmax(70px,.75fr) 38px 74px 14px", css)
         script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
         self.assertIn("labelStep", script)
         self.assertIn('data.period === "month"', script)
