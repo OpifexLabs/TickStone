@@ -694,7 +694,7 @@ class DashboardRenderTest(unittest.TestCase):
         detail_script = (ROOT / "tools" / "tickstone_dashboard_web" / "detail-chart.js").read_text()
         self.assertIn("Math.min(4, Math.floor(maximum))", detail_script)
         self.assertNotIn("} st`", detail_script)
-        self.assertIn("} times`", detail_script)
+        self.assertIn('count === 1 ? "time" : "times"', detail_script)
         for swedish_ui in (
             "Personliga rekord", "Dina mönster", "Senaste loggar", "Välj en dag",
             "Tillfällen", "Tidsupplösning", "Stapeldiagram", "sessioner", "skrivskyddad",
