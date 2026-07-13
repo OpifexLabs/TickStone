@@ -129,7 +129,7 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["habits"][0]["total"], 3)
         self.assertEqual(model["habits"][1]["name"], "Habit 2")
         self.assertEqual(model["habits"][1]["minutes"], 2)
-        self.assertEqual((model["habits"][1]["display_value"], model["habits"][1]["display_unit"]), (2, "minuter"))
+        self.assertEqual((model["habits"][1]["display_value"], model["habits"][1]["display_unit"]), (2, "minutes"))
         self.assertEqual([item["id"] for item in model["recent"]], [2, 1, 3])
         self.assertNotIn(4, [item["id"] for item in model["recent"]])
 
@@ -139,7 +139,7 @@ class DashboardDataTest(unittest.TestCase):
         model = build_dashboard(self.database, self.epoch("2026-07-12T12:00:00"))
 
         habit = next(item for item in model["habits"] if item["id"] == 2)
-        self.assertEqual((habit["display_value"], habit["display_unit"]), (5, "sekunder"))
+        self.assertEqual((habit["display_value"], habit["display_unit"]), (5, "seconds"))
 
     def test_dashboard_closes_every_read_only_connection(self):
         created = []
@@ -184,10 +184,10 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(model["sessions"], 2)
         self.assertEqual(model["previous_total"], 2)
         self.assertEqual(model["trend"], 150)
-        self.assertEqual(model["trend_label"], "+150% jämfört med förra veckan")
+        self.assertEqual(model["trend_label"], "+150% compared with last week")
         self.assertEqual(model["longest_streak"], 2)
         self.assertEqual(model["average_value"], 2)
-        self.assertEqual(model["trend_summary"]["title"], "Ny rytm")
+        self.assertEqual(model["trend_summary"]["title"], "New rhythm")
 
     def test_rich_time_detail_exposes_comparisons_chart_modes_records_patterns_calendar_and_logs(self):
         self.add_habit(1, "MED", "MEDITATION", "time", 10)
@@ -235,7 +235,7 @@ class DashboardDataTest(unittest.TestCase):
         self.add(69, 1, "time", "2026-07-06T08:00:00", duration=600)
         model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-06T12:00:00"))
         self.assertEqual(model["milestone"]["remaining"], 301)
-        self.assertIn("5 min 1 sek kvar", model["milestone"]["text"])
+        self.assertIn("5 min 1 sec left", model["milestone"]["text"])
 
     def test_detail_excludes_snapshotless_legacy_events_before_current_identity(self):
         self.change_habit(0, "RUN", "RUNNING", "count", valid_from=self.epoch("2026-07-01T05:00:00"))
@@ -259,7 +259,7 @@ class DashboardDataTest(unittest.TestCase):
         chart = build_time_chart(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
 
         self.assertEqual(overview["kpis"]["total_seconds"], 2)
-        self.assertEqual(next(item for item in overview["habits"] if item["id"] == 1)["display_value"], "2 sek")
+        self.assertEqual(next(item for item in overview["habits"] if item["id"] == 1)["display_value"], "2 sec")
         self.assertEqual(chart["total_seconds"], 2)
 
     def test_detail_weekend_pattern_uses_tickstone_day_boundary(self):
@@ -270,7 +270,7 @@ class DashboardDataTest(unittest.TestCase):
         ):
             self.add(ident, 1, "time", stamp, duration=duration)
         model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-12T14:00:00"))
-        self.assertTrue(any("längre sessioner på helger" in item for item in model["patterns"]))
+        self.assertTrue(any("longer sessions on weekends" in item for item in model["patterns"]))
 
     def test_detail_trend_uses_only_completed_weeks(self):
         self.add_habit(1, "MED", "MEDITATION", "time", 10)
@@ -281,8 +281,8 @@ class DashboardDataTest(unittest.TestCase):
         ):
             self.add(ident, 1, "time", stamp, duration=duration)
         model = build_habit_detail(self.database, 1, "week", self.epoch("2026-07-08T12:00:00"))
-        self.assertEqual(model["trend_summary"]["title"], "På väg upp")
-        self.assertIn("avslutade veckorna", model["trend_summary"]["text"])
+        self.assertEqual(model["trend_summary"]["title"], "Trending up")
+        self.assertIn("completed weeks", model["trend_summary"]["text"])
 
     def test_detail_week_record_uses_last_contributing_day_and_ties_do_not_create_patterns(self):
         self.add_habit(1, "MED", "MEDITATION", "time", 10)
@@ -312,14 +312,14 @@ class DashboardDataTest(unittest.TestCase):
         comparisons = build_overview_comparisons(self.database, self.epoch("2026-07-12T12:00:00"))
 
         self.assertEqual(comparisons["week"], {"current": 3, "previous": 2, "percent": 50,
-                                                "tone": "up", "label": "+50% jämfört med förra veckan"})
-        self.assertEqual(comparisons["month"]["label"], "+300% jämfört med förra månaden")
+                                                "tone": "up", "label": "+50% compared with last week"})
+        self.assertEqual(comparisons["month"]["label"], "+300% compared with last month")
 
         empty_database = self.root / "empty.sqlite3"
         with open_store(empty_database):
             pass
         empty = build_overview_comparisons(empty_database, self.epoch("2026-07-12T12:00:00"))
-        self.assertEqual(empty["week"]["label"], "Samma nivå som förra veckan")
+        self.assertEqual(empty["week"]["label"], "Same level as last week")
         self.assertEqual(empty["week"]["tone"], "flat")
 
     def test_timeline_zero_fills_buckets_and_groups_year_by_month(self):
@@ -362,7 +362,7 @@ class DashboardDataTest(unittest.TestCase):
         comparison = build_overview_comparisons(self.database, self.epoch("2026-07-12T12:00:00"))["month"]
         self.assertEqual(comparison["percent"], None)
         self.assertEqual(comparison["tone"], "up")
-        self.assertEqual(comparison["label"], "Ny aktivitet den här månaden")
+        self.assertEqual(comparison["label"], "New activity this month")
     def test_reference_overview_uses_calendar_period_navigation_and_kpis(self):
         self.add_habit(1, "MED", "MEDITATION", "time", default_minutes=10)
         self.add(70, 0, "count", "2026-07-06T08:00:00", count=1)
@@ -376,7 +376,7 @@ class DashboardDataTest(unittest.TestCase):
         previous = build_statistics_overview(self.database, "week", -1, self.epoch("2026-07-12T12:00:00"))
 
         self.assertEqual((model["period_start"], model["period_end"]), ("2026-07-06", "2026-07-12"))
-        self.assertEqual(model["period_label"], "6–12 juli 2026")
+        self.assertEqual(model["period_label"], "July 6–12, 2026")
         self.assertEqual(model["navigation"], {"previous_offset": -1, "next_offset": None})
         self.assertEqual((previous["period_start"], previous["period_end"]), ("2026-06-29", "2026-07-05"))
         self.assertEqual(model["kpis"]["active_days"], 2)
@@ -384,7 +384,7 @@ class DashboardDataTest(unittest.TestCase):
         self.assertNotIn("completion_percent", model["kpis"])
         self.assertEqual(model["kpis"]["total_sessions"], 4)
         self.assertEqual(model["kpis"]["total_seconds"], 900)
-        self.assertEqual(model["kpis"]["comparison"]["label"], "+300% jämfört med förra veckan")
+        self.assertEqual(model["kpis"]["comparison"]["label"], "+300% compared with last week")
         self.assertNotIn("activity", model)
 
     def test_streak_remains_current_when_last_activity_was_yesterday(self):
@@ -401,7 +401,7 @@ class DashboardDataTest(unittest.TestCase):
         model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
 
         meditation = next(row for row in model["habits"] if row["id"] == 1)
-        self.assertEqual((meditation["type_label"], meditation["display_value"]), ("Tid", "10 min"))
+        self.assertEqual((meditation["type_label"], meditation["display_value"]), ("Time", "10 min"))
         self.assertNotIn("progress_percent", meditation)
         self.assertEqual(len(model["heatmap"]["cells"]), 84)
         self.assertEqual(model["heatmap"]["weeks"], 12)
@@ -419,31 +419,36 @@ class DashboardDataTest(unittest.TestCase):
         rendered = render_statistics_dashboard(model)
         model["habits"][0]["current_streak"] = 1
         singular_rendered = render_statistics_dashboard(model)
-        self.assertIn("1 dags streak", singular_rendered)
-        self.assertNotIn("1 dagars streak", singular_rendered)
-        for marker in ('class="workspace-brand"', 'Din statistik', 'Tidsaktivitet', 'Dina vanor',
-                       'Aktivitet senaste 12 veckorna', 'Insikter', 'period-switcher', 'habit-performance',
+        self.assertIn("1-day streak", singular_rendered)
+        self.assertNotIn("1 days streak", singular_rendered)
+        for marker in ('class="workspace-brand"', 'Your statistics', 'Time activity', 'Your habits',
+                       'Activity over the last 12 weeks', 'Insights', 'period-switcher', 'habit-performance',
                        'id="time-chart"', 'data-chart-type="bar"', 'data-chart-type="line"',
-                       'aria-label="Välj tidsbaserade vanor"'):
+                       'aria-label="Select time-based habits"'):
             self.assertIn(marker, rendered)
         self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('href="/?period=month&amp;offset=0"', rendered)
-        self.assertIn('aria-label="Föregående period"', rendered)
+        self.assertIn('aria-label="Previous period"', rendered)
         self.assertIn('momentum-card', rendered)
         self.assertNotIn('mål', rendered.lower())
+        for swedish_ui in (
+            "Din statistik", "Vecka", "Månad", "All tid", "aktiva dagar", "loggar",
+            "Tidsaktivitet", "Dina vanor", "Insikter", "Föregående period", "Nästa period",
+        ):
+            self.assertNotIn(swedish_ui, rendered)
         self.assertIn('comparison-pair', rendered)
-        self.assertIn('>V: <', rendered)
+        self.assertIn('>W: <', rendered)
         self.assertIn('>M: <', rendered)
         self.assertIn('class="compare-up">+4%</em>', rendered)
         self.assertIn('class="compare-down">-7%</em>', rendered)
         self.assertNotIn('<span>Typ</span>', rendered)
-        self.assertIn('class="habit-streak" title="0 dagars streak">0</span>', rendered)
+        self.assertIn('class="habit-streak" title="0-day streak">0</span>', rendered)
         self.assertNotIn('class="stack-count"', rendered)
         self.assertNotIn("https://", rendered)
-        model["insights"] = [{"kind": "record", "text": "Nytt rekord: 12 min meditation"}]
+        model["insights"] = [{"kind": "record", "text": "New record: 12 min meditation"}]
         record_rendered = render_statistics_dashboard(model)
         self.assertIn('class="record-insight"', record_rendered)
-        self.assertIn("Nytt rekord: 12 min meditation", record_rendered)
+        self.assertIn("New record: 12 min meditation", record_rendered)
 
     def test_reference_overview_supports_month_year_all_and_rejects_future_offsets(self):
         month = build_statistics_overview(self.database, "month", 0, self.epoch("2024-02-29T12:00:00"))
@@ -455,7 +460,7 @@ class DashboardDataTest(unittest.TestCase):
                          ("2024-01-01", "2024-12-31"))
         self.assertNotIn("activity", month)
         self.assertNotIn("activity", year)
-        self.assertEqual(all_time["period_label"], "All sparad tid")
+        self.assertEqual(all_time["period_label"], "All saved history")
         with self.assertRaises(ValueError):
             build_statistics_overview(self.database, "week", 1, self.epoch("2026-07-12T12:00:00"))
         with self.assertRaises(ValueError):
@@ -503,8 +508,8 @@ class DashboardDataTest(unittest.TestCase):
 
         model = build_dashboard_intelligence(self.database, self.epoch("2026-07-08T12:00:00"))
 
-        self.assertEqual(model["momentum"]["label"], "På väg upp")
-        self.assertIn("ökade", model["momentum"]["detail"])
+        self.assertEqual(model["momentum"]["label"], "Trending up")
+        self.assertIn("increased", model["momentum"]["detail"])
         records = model["personal_records"]
         self.assertEqual(records["longest_streak"]["value"], 2)
         self.assertEqual(records["best_week"]["value"], 4)
@@ -512,9 +517,9 @@ class DashboardDataTest(unittest.TestCase):
         self.assertEqual(records["longest_time_session"]["value"], 720)
         self.assertEqual(records["most_total_time_week"]["value"], 900)
         self.assertIn("longest_time_session", {item["kind"] for item in model["new_records"]})
-        self.assertTrue(model["record_insight"]["text"].startswith("Nytt rekord:"))
+        self.assertTrue(model["record_insight"]["text"].startswith("New record:"))
         self.assertEqual(model["milestone"]["remaining"], 181)
-        self.assertIn("3 min 1 sek kvar till nytt personbästa", model["milestone"]["text"])
+        self.assertIn("3 min 1 sec left to beat your personal best", model["milestone"]["text"])
 
     def test_intelligence_resets_baseline_when_slot_type_changes(self):
         self.add(140, 0, "count", "2026-07-05T10:00:00", count=2)
@@ -525,7 +530,7 @@ class DashboardDataTest(unittest.TestCase):
         model = build_dashboard_intelligence(self.database, self.epoch("2026-07-12T12:00:00"))
         habit = next(item for item in model["habit_comparisons"] if item["id"] == 0)
         self.assertEqual(habit["week"], {"current": 600, "previous": 0, "percent": None,
-                                         "display": "Ny", "tone": "up"})
+                                         "display": "New", "tone": "up"})
         self.assertIsNone(model["milestone"])
 
     def test_intelligence_resets_baseline_when_slot_identity_changes_with_same_type(self):
@@ -535,7 +540,7 @@ class DashboardDataTest(unittest.TestCase):
         model = build_dashboard_intelligence(self.database, self.epoch("2026-07-12T12:00:00"))
         habit = next(item for item in model["habit_comparisons"] if item["id"] == 0)
         self.assertEqual((habit["week"]["current"], habit["week"]["previous"], habit["week"]["display"]),
-                         (3, 0, "Ny"))
+                         (3, 0, "New"))
 
     def test_future_events_are_excluded_consistently_from_overview(self):
         self.add(150, 0, "count", "2026-07-12T15:00:00", count=3)
@@ -543,7 +548,7 @@ class DashboardDataTest(unittest.TestCase):
         model = build_statistics_overview(self.database, "week", 0, self.epoch("2026-07-12T12:00:00"))
         habit = next(item for item in model["habits"] if item["id"] == 0)
         self.assertEqual(habit["sessions"], 0)
-        self.assertEqual(habit["display_value"], "0 gånger")
+        self.assertEqual(habit["display_value"], "0 times")
         self.assertEqual(model["kpis"]["active_days"], 0)
         self.assertTrue(all(cell["value"] == 0 for cell in model["heatmap"]["cells"]))
 
@@ -553,8 +558,8 @@ class DashboardDataTest(unittest.TestCase):
         self.add(162, 0, "count", "2026-07-01T08:00:00", count=1)
         self.add(163, 0, "count", "2026-07-06T08:00:00", count=1)
         model = build_dashboard_intelligence(self.database, self.epoch("2026-07-08T12:00:00"))
-        self.assertEqual(model["momentum"]["label"], "Ingen positiv trend ännu")
-        self.assertIn("2 färre loggar", model["momentum"]["detail"])
+        self.assertEqual(model["momentum"]["label"], "No positive trend yet")
+        self.assertIn("2 fewer logs", model["momentum"]["detail"])
 
     def test_inactive_habits_do_not_drive_current_intelligence(self):
         self.add(170, 0, "count", "2026-06-22T08:00:00", count=3)
@@ -573,7 +578,7 @@ class DashboardDataTest(unittest.TestCase):
         self.add(181, 1, "time", "2026-07-06T09:00:00", duration=720)
         model = build_dashboard_intelligence(self.database, self.epoch("2026-07-06T12:00:00"))
         self.assertEqual(model["milestone"]["remaining"], 181)
-        self.assertIn("3 min 1 sek kvar", model["milestone"]["text"])
+        self.assertIn("3 min 1 sec left", model["milestone"]["text"])
 
     def test_noncurrent_views_do_not_mix_in_current_week_intelligence(self):
         self.add(190, 0, "count", "2026-07-06T08:00:00", count=4)
@@ -596,29 +601,29 @@ class DashboardDataTest(unittest.TestCase):
 class DashboardRenderTest(unittest.TestCase):
     def test_render_is_semantic_local_responsive_and_accessible(self):
         model = {
-            "generated_at": "12 juli 2026 12:00",
+            "generated_at": "July 12, 2026 12:00",
             "metadata_status": "synced",
             "comparisons": {
-                "week": {"current": 3, "previous": 2, "percent": 50, "tone": "up", "label": "+50% jämfört med förra veckan"},
-                "month": {"current": 3, "previous": 0, "percent": None, "tone": "up", "label": "Ny aktivitet den här månaden"},
+                "week": {"current": 3, "previous": 2, "percent": 50, "tone": "up", "label": "+50% compared with last week"},
+                "month": {"current": 3, "previous": 0, "percent": None, "tone": "up", "label": "New activity this month"},
             },
             "summary": {"today": 2, "week": 3, "minutes": 2, "streak": 2},
-            "days": [{"label": label, "value": index, "height": index * 10} for index, label in enumerate("MTOTFLS")],
+            "days": [{"label": label, "value": index, "height": index * 10} for index, label in enumerate("MTWTFSS")],
             "habits": [{"id": 0, "name": "MEDITATION", "code": "MED", "total": 3, "minutes": 0,
-                        "display_value": 3, "display_unit": "gånger"}],
-            "recent": [{"id": 1, "name": "MEDITATION", "kind": "2 gånger", "when": "Idag 08:00"}],
+                        "display_value": 3, "display_unit": "times"}],
+            "recent": [{"id": 1, "name": "MEDITATION", "kind": "2 times", "when": "Today 08:00"}],
         }
 
         html = render_dashboard(model)
 
-        for marker in ("<main", "<header", "<section", "aria-label=", "TickStone", "Senaste aktivitet"):
+        for marker in ("<main", "<header", "<section", "aria-label=", "TickStone", "Recent activity"):
             self.assertIn(marker, html)
         self.assertIn('/assets/styles.css', html)
         self.assertIn('/assets/app.js', html)
-        self.assertIn('+50% jämfört med förra veckan', html)
+        self.assertIn('+50% compared with last week', html)
         self.assertIn('id="timeline-chart"', html)
         self.assertIn('data-range="week"', html)
-        self.assertIn('aria-label="Välj habits i linjegrafen"', html)
+        self.assertIn('aria-label="Select habits in the line chart"', html)
         self.assertNotIn('https://', html)
         self.assertNotIn('http://', html)
 
@@ -654,8 +659,8 @@ class DashboardRenderTest(unittest.TestCase):
     def test_detail_render_escapes_metadata_and_has_period_navigation(self):
         model = {"habit": {"id": 0, "code": "<X", "name": "<script>", "type": "count"},
                  "period": "week", "period_start": "2026-07-06", "period_end": "2026-07-12",
-                 "metadata_status": "synced", "display_value": "2", "display_unit": "gånger",
-                 "active_days": 1, "average_value": "2", "average_unit": "gånger",
+                 "metadata_status": "synced", "display_value": "2", "display_unit": "times",
+                 "active_days": 1, "average_value": "2", "average_unit": "times",
                  "longest_streak": 1, "current_streak": 0, "sessions": 1, "trend": None,
                  "best_day": "2026-07-07", "best_period": "2026-07-07",
                  "points": [{"label": "2026-07-07", "value": 2, "height": 100}]}
@@ -674,20 +679,26 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn('data-chart-mode="day"', rendered)
         self.assertIn('data-chart-mode="week"', rendered)
         self.assertIn('data-chart-mode="month"', rendered)
-        self.assertIn('data-y-label="Tillfällen"', rendered)
+        self.assertIn('data-y-label="Occurrences"', rendered)
         self.assertIn('data-chart-modes=', rendered)
-        self.assertIn('Personliga rekord', rendered)
-        self.assertIn('Veckoförändring', rendered)
-        self.assertIn('Bästa vecka', rendered)
-        self.assertIn('Lugnaste aktiva vecka', rendered)
-        self.assertIn('Dina mönster', rendered)
+        self.assertIn('Personal bests', rendered)
+        self.assertIn('Weekly change', rendered)
+        self.assertIn('Best week', rendered)
+        self.assertIn('Quietest active week', rendered)
+        self.assertIn('Your patterns', rendered)
         self.assertIn('habit-calendar-grid', rendered)
-        self.assertIn('Senaste loggar', rendered)
+        self.assertIn('Recent logs', rendered)
         self.assertNotIn('veckomålet', rendered)
         self.assertNotIn('måluppfyllelse', rendered.lower())
         self.assertIn('/assets/detail-chart.js', rendered)
         detail_script = (ROOT / "tools" / "tickstone_dashboard_web" / "detail-chart.js").read_text()
         self.assertIn("Math.min(4, Math.floor(maximum))", detail_script)
+        for swedish_ui in (
+            "Personliga rekord", "Dina mönster", "Senaste loggar", "Välj en dag",
+            "Tillfällen", "Tidsupplösning", "Stapeldiagram", "sessioner", "skrivskyddad",
+        ):
+            self.assertNotIn(swedish_ui, rendered + detail_script)
+        self.assertIn('<html lang="en">', rendered)
 
 
 class DashboardHttpTest(unittest.TestCase):
@@ -746,7 +757,7 @@ class DashboardHttpTest(unittest.TestCase):
         before = (self.database.stat().st_mtime_ns, self.database.stat().st_size)
         status, _, body = self.request("GET", "/?period=month&offset=-1")
         self.assertEqual(status, 200)
-        self.assertIn(b"Din statistik", body)
+        self.assertIn(b"Your statistics", body)
         self.assertEqual(self.request("GET", "/?period=decade")[0], 400)
         self.assertEqual(self.request("GET", "/?period=week&offset=1")[0], 400)
         self.assertEqual(self.request("GET", "/?period=week&offset=not-a-number")[0], 400)

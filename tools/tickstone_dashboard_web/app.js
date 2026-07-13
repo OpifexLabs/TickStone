@@ -63,7 +63,7 @@
     if (!series.length) {
       const empty = document.createElement("p");
       empty.className = "chart-empty";
-      empty.textContent = data.series.length ? "Välj minst en vana för att visa grafen." : "Ingen tidsaktivitet att visa ännu.";
+      empty.textContent = data.series.length ? "Select at least one habit to show the chart." : "No time activity to show yet.";
       chart.append(empty);
       chart.setAttribute("aria-label", empty.textContent);
       return;
@@ -127,7 +127,7 @@
 
     chart.append(svg);
     const total = series.reduce((sum, item) => sum + item.values.reduce((part, value) => part + value, 0), 0);
-    chart.setAttribute("aria-label", `${chartType === "bar" ? "Stapeldiagram" : "Linjediagram"} över faktisk tid för ${series.map(item => item.name).join(", ")}. Totalt ${duration(total)}.`);
+    chart.setAttribute("aria-label", `${chartType === "bar" ? "Bar chart" : "Line chart"} of actual time for ${series.map(item => item.name).join(", ")}. Total ${duration(total)}.`);
   }
 
   typeButtons.forEach(button => button.addEventListener("click", () => {

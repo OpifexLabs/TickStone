@@ -53,7 +53,7 @@
     syncButtons();
     const points = chartModes[chartMode] || [];
     if (!points.length) {
-      chart.textContent = "Ingen aktivitet ännu.";
+      chart.textContent = "No activity yet.";
       return;
     }
     const width = Math.max(420, chart.clientWidth || 760);
@@ -113,7 +113,7 @@
         return item;
       }));
     }
-    chart.setAttribute("aria-label", `${chartType === "bar" ? "Stapeldiagram" : "Linjediagram"}. ${yLabel}, ${chartMode}. Högsta värde ${formatValue(maximum)}.`);
+    chart.setAttribute("aria-label", `${chartType === "bar" ? "Bar chart" : "Line chart"}. ${yLabel}, ${chartMode}. Highest value ${formatValue(maximum)}.`);
   }
 
   typeButtons.forEach(button => button.addEventListener("click", () => {
@@ -137,7 +137,7 @@
       heading.textContent = button.dataset.day;
       const summary = document.createElement("span");
       const sessionCount = Number(button.dataset.sessions || 0);
-      summary.textContent = `${button.dataset.display || "0"} totalt · ${sessionCount} ${sessionCount === 1 ? "session" : "sessioner"}`;
+      summary.textContent = `${button.dataset.display || "0"} total · ${sessionCount} ${sessionCount === 1 ? "session" : "sessions"}`;
       const list = document.createElement("ul");
       events.forEach(event => {
         const item = document.createElement("li");
@@ -149,7 +149,7 @@
   });
 
   document.querySelectorAll(".read-only-log-action").forEach(button => button.addEventListener("click", () => {
-    button.title = "Dashboarden är skrivskyddad; råloggen kan inte ändras här.";
+    button.title = "The dashboard is read-only; the raw log cannot be changed here.";
   }));
 
   if (window.matchMedia("(max-width: 760px)").matches) {
