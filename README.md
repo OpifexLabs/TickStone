@@ -109,7 +109,7 @@ Databasen kan alltid byggas om fran JSONL. Backuper och ra-logg ska inte laggas 
 
 ## Lokal statistikdashboard
 
-Dashboarden ar en read-only webbvy over `tickstone.sqlite3`. Den har inga skrivande API:er, inga externa typsnitt, script eller CDN-anrop och ar avsedd enbart for hem-LAN och Tailscale.
+Dashboarden ar en read-only webbvy over `tickstone.sqlite3`. Den har inga skrivande API:er, inga externa typsnitt, script eller CDN-anrop och ar avsedd enbart for hem-LAN och Tailscale. Hela produktgranssnittet, inklusive datum, ARIA-texter, diagram och klientgenererade dagsdetaljer, visas pa engelska; anvandarskapade habitnamn visas oforandrade.
 
 Habit-raderna ar klickbara. `/habit/0?period=week`, `month`, `year` och `all` visar
 kalenderbaserad aktivitet, total, aktiva dagar, genomsnitt, streak och periodjamforelse.
