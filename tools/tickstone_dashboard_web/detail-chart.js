@@ -23,7 +23,7 @@
   }
 
   function formatValue(value) {
-    if (valueKind === "count") return `${Math.round(value)} st`;
+    if (valueKind === "count") return `${Math.round(value)} times`;
     if (value < 60) return `${Math.round(value)} s`;
     if (value < 3600) return `${Math.round(value / 60)} min`;
     const hours = value / 3600;
