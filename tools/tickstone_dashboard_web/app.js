@@ -2,22 +2,34 @@
   const chart = document.getElementById("time-chart");
   if (!chart) return;
 
+  const REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+  const LIVE_REGION_NAMES = ["period-navigation", "highlights", "time-series", "habits", "heatmap", "insights", "sync-status"];
   const NS = "http://www.w3.org/2000/svg";
   const typeButtons = [...document.querySelectorAll("[data-chart-type]")];
-  const toggles = [...document.querySelectorAll("[data-series-id]")];
+  let toggles = [];
   const typeKey = "tickstone-time-chart-type";
   const seriesKey = "tickstone-time-chart-series";
   let data = null;
+  let refreshInFlight = null;
   let chartType = sessionStorage.getItem(typeKey) || "bar";
   if (!['bar', 'line'].includes(chartType)) chartType = "bar";
 
-  const savedIds = (() => {
+  function savedSeriesIds() {
     try {
       const value = JSON.parse(sessionStorage.getItem(seriesKey) || "null");
       return Array.isArray(value) ? new Set(value.map(Number)) : null;
     } catch (_) { return null; }
-  })();
-  if (savedIds) toggles.forEach(input => { input.checked = savedIds.has(Number(input.dataset.seriesId)); });
+  }
+
+  function bindToggles() {
+    toggles = [...document.querySelectorAll("[data-series-id]")];
+    const savedIds = savedSeriesIds();
+    if (savedIds) toggles.forEach(input => { input.checked = savedIds.has(Number(input.dataset.seriesId)); });
+    toggles.forEach(input => input.addEventListener("change", () => {
+      sessionStorage.setItem(seriesKey, JSON.stringify(toggles.filter(item => item.checked).map(item => Number(item.dataset.seriesId))));
+      draw();
+    }));
+  }
 
   function node(name, attrs = {}, text = "") {
     const element = document.createElementNS(NS, name);
@@ -135,10 +147,7 @@
     sessionStorage.setItem(typeKey, chartType);
     draw();
   }));
-  toggles.forEach(input => input.addEventListener("change", () => {
-    sessionStorage.setItem(seriesKey, JSON.stringify(toggles.filter(item => item.checked).map(item => Number(item.dataset.seriesId))));
-    draw();
-  }));
+  bindToggles();
 
   let resizeTimer;
   window.addEventListener("resize", () => {
@@ -146,21 +155,68 @@
     resizeTimer = setTimeout(draw, 120);
   });
 
-  const url = `/api/time-chart?period=${encodeURIComponent(chart.dataset.period)}&offset=${encodeURIComponent(chart.dataset.offset)}`;
-  fetch(url, { headers: { Accept: "application/json" } })
-    .then(response => {
-      if (!response.ok) throw new Error(`HTTP ${response.status}`);
-      return response.json();
-    })
+  function chartUrl() {
+    return `/api/time-chart?period=${encodeURIComponent(chart.dataset.period)}&offset=${encodeURIComponent(chart.dataset.offset)}`;
+  }
+
+  async function fetchChartData() {
+    const response = await fetch(chartUrl(), { headers: { Accept: "application/json" }, cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return response.json();
+  }
+
+  async function fetchDashboardDocument() {
+    const url = `${window.location.pathname}${window.location.search}`;
+    const response = await fetch(url, { headers: { Accept: "text/html" }, cache: "no-store" });
+    if (!response.ok) throw new Error(`HTTP ${response.status}`);
+    return new DOMParser().parseFromString(await response.text(), "text/html");
+  }
+
+  function patchLiveRegions(nextDocument) {
+    let reboundToggles = false;
+    LIVE_REGION_NAMES.forEach(name => {
+      const selector = `[data-live-region="${name}"]`;
+      const current = document.querySelector(selector);
+      const incoming = nextDocument.querySelector(selector);
+      if (!current || !incoming || current.innerHTML === incoming.innerHTML) return;
+      current.innerHTML = incoming.innerHTML;
+      if (name === "time-series") reboundToggles = true;
+    });
+    if (reboundToggles) bindToggles();
+  }
+
+  async function refreshDashboard() {
+    if (refreshInFlight) return refreshInFlight;
+    refreshInFlight = Promise.allSettled([fetchDashboardDocument(), fetchChartData()])
+      .then(([pageResult, chartResult]) => {
+        let refreshed = false;
+        if (pageResult.status === "fulfilled") {
+          patchLiveRegions(pageResult.value);
+          refreshed = true;
+        }
+        if (chartResult.status === "fulfilled") {
+          data = chartResult.value;
+          draw();
+          refreshed = true;
+        }
+        return refreshed;
+      })
+      .catch(() => false)
+      .finally(() => { refreshInFlight = null; });
+    return refreshInFlight;
+  }
+
+  fetchChartData()
     .then(payload => { data = payload; draw(); })
     .catch(() => {
       chart.replaceChildren();
       const message = document.createElement("p");
       message.className = "chart-empty";
-      message.textContent = "Tidsgrafen kunde inte laddas.";
+      message.textContent = "The time chart could not be loaded.";
       chart.append(message);
     });
 
   syncControls();
-  window.setTimeout(() => { if (!document.hidden) window.location.reload(); }, 300000);
+  window.tickstoneDashboard = Object.freeze({ refresh: refreshDashboard });
+  window.setInterval(refreshDashboard, REFRESH_INTERVAL_MS);
 })();
