@@ -139,6 +139,8 @@ Narmaste relevanta gap till att faktiskt sla (inte bara tangera) ett tidigare ve
 visas som milstolpe; nagon permanent rekordpanel finns inte.
 Tidsgrafen kan visas som staplar eller linjer;
 valda habits och diagramtyp sparas i `sessionStorage`. Count-events visas inte i grafen.
+Oversikten hamtar ny read-only data var femte minut och uppdaterar bara de dynamiska
+regioner som har andrats. Den gor ingen sidomladdning, sa scrollposition och diagramval ligger kvar.
 Dashboarden har inga mal, malringar eller malnormaliserade framsteg; varken renderingslagret
 eller statistikmodellen beraknar maluppfyllelse. Habitdetaljen binder snapshot-losa legacy-events
 konservativt till den aktuella identitetens `valid_from`, raknar helg/vardag fran TickStone-dygnet

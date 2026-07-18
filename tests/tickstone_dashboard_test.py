@@ -426,6 +426,9 @@ class DashboardDataTest(unittest.TestCase):
                        'id="time-chart"', 'data-chart-type="bar"', 'data-chart-type="line"',
                        'aria-label="Select time-based habits"'):
             self.assertIn(marker, rendered)
+        for live_region in ("period-navigation", "highlights", "time-series", "habits", "heatmap",
+                            "insights", "sync-status"):
+            self.assertEqual(rendered.count(f'data-live-region="{live_region}"'), 1)
         self.assertNotIn('class="app-sidebar"', rendered)
         self.assertIn('href="/?period=month&amp;offset=0"', rendered)
         self.assertIn('aria-label="Previous period"', rendered)
@@ -655,6 +658,17 @@ class DashboardRenderTest(unittest.TestCase):
         self.assertIn("getComputedStyle(chart).height", script)
         self.assertIn("Math.min(4, maximum)", script)
         self.assertIn("tickCount", script)
+
+    def test_statistics_dashboard_refreshes_live_regions_without_reloading_the_page(self):
+        script = (ROOT / "tools" / "tickstone_dashboard_web" / "app.js").read_text()
+
+        self.assertIn("const REFRESH_INTERVAL_MS = 5 * 60 * 1000", script)
+        self.assertIn("window.setInterval(refreshDashboard, REFRESH_INTERVAL_MS)", script)
+        self.assertIn("new DOMParser()", script)
+        self.assertIn('[data-live-region="', script)
+        self.assertIn('cache: "no-store"', script)
+        self.assertIn("window.tickstoneDashboard", script)
+        self.assertNotIn("window.location.reload", script)
 
     def test_detail_render_escapes_metadata_and_has_period_navigation(self):
         model = {"habit": {"id": 0, "code": "<X", "name": "<script>", "type": "count"},
