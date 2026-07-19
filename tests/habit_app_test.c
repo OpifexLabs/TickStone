@@ -107,6 +107,29 @@ static void test_synced_session_can_finish_if_clock_becomes_unavailable(void)
     assert(app.logs[0].timestamp_end == start_utc + 30);
 }
 
+static void test_backward_clock_correction_rebases_active_session(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+    const int64_t initial_utc = 1704110400;
+    const int64_t corrected_utc = initial_utc - 120;
+    habit_app_update_clock(&app, initial_utc, true);
+
+    habit_app_handle_button(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 100);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 101);
+    habit_app_handle_button(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 102);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 103);
+    assert(app.session_active);
+
+    habit_app_update_clock(&app, corrected_utc, true);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_LONG, 133);
+    assert(app.log_count == 1);
+    assert(app.logs[0].duration_seconds == 30);
+    assert(app.logs[0].timestamp_start == corrected_utc - 30);
+    assert(app.logs[0].timestamp_end == corrected_utc);
+    assert(app.logs[0].timestamp_end >= app.logs[0].timestamp_start);
+}
+
 static void test_navigation_wraps_between_habits(void)
 {
     habit_app_t app;
@@ -541,6 +564,7 @@ int main(void)
     test_count_requires_a_valid_clock();
     test_time_session_requires_a_valid_clock();
     test_synced_session_can_finish_if_clock_becomes_unavailable();
+    test_backward_clock_correction_rebases_active_session();
     test_navigation_wraps_between_habits();
     test_home_modes_and_habit_detail();
     test_habit_detail_shows_latest_log();

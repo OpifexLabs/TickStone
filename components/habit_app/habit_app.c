@@ -273,8 +273,8 @@ static void save_time_session(habit_app_t *app, int64_t now_seconds, bool comple
     if (app->clock_synced && app->session_time_mode == HABIT_TIME_TIMER) {
         timestamp_end = app->utc_now - (elapsed_session_seconds(app, now_seconds) - duration);
     }
-    const int64_t timestamp_start = app->session_start_utc_valid ? app->session_start_utc :
-                                    timestamp_end - duration;
+    const int64_t timestamp_start = app->clock_synced ? timestamp_end - duration :
+                                    app->session_start_utc;
     if (!append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_TIME,
