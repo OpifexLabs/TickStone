@@ -15,6 +15,7 @@
 #include "app_config.h"
 #include "buttons.h"
 #include "clock_service.h"
+#include "clock_sync_policy.h"
 #include "display_idle.h"
 #include "finish_alert.h"
 #include "habit_app.h"
@@ -27,6 +28,9 @@ static const char *TAG = APP_NAME;
 
 static habit_app_t s_app;
 static uint64_t s_ble_published_log_id;
+static clock_sync_policy_t s_clock_sync_policy;
+
+static int64_t now_milliseconds(void);
 
 static const habit_log_t *first_unsynced_log(void)
 {
@@ -53,6 +57,7 @@ static void apply_transport_requests(void)
     int64_t utc_seconds = 0;
     if (tickstone_usb_take_time(&utc_seconds) || tickstone_ble_take_time(&utc_seconds)) {
         set_utc_time(utc_seconds);
+        clock_sync_policy_synchronized(&s_clock_sync_policy, now_milliseconds());
         ESP_LOGI(TAG, "Clock set by host");
     }
     uint64_t ack_id = 0;
@@ -333,6 +338,7 @@ void app_main(void)
     size_t transport_habit_count = habit_app_copy_habits(&s_app, transport_habits, HABIT_APP_MAX_HABITS);
     ESP_ERROR_CHECK(tickstone_usb_start(transport_habits, transport_habit_count));
     ESP_ERROR_CHECK(tickstone_ble_init());
+    clock_sync_policy_init(&s_clock_sync_policy, now_milliseconds());
     tickstone_ble_publish_habits(transport_habits, transport_habit_count);
 
     habit_screen_t last_screen = {0};
@@ -349,6 +355,8 @@ void app_main(void)
         apply_transport_requests();
         const int64_t seconds = now_seconds();
         const int64_t milliseconds = now_milliseconds();
+        const bool request_clock_sync = clock_sync_policy_take_request(&s_clock_sync_policy,
+                                                                        milliseconds);
         int64_t utc_seconds = 0;
         bool clock_synced = clock_service_now_utc(&utc_seconds);
         habit_app_update_clock(&s_app, utc_seconds, clock_synced);
@@ -406,7 +414,7 @@ void app_main(void)
         const bool request_ble_sync = (s_app.logs_dirty && first_unsynced_log() != NULL) ||
                                       s_app.habits_dirty;
         ESP_ERROR_CHECK(persist_app_state());
-        if (request_ble_sync || tickstone_usb_take_sync_request()) {
+        if (request_ble_sync || request_clock_sync || tickstone_usb_take_sync_request()) {
             ESP_ERROR_CHECK(tickstone_ble_request_sync(milliseconds));
         }
         ESP_ERROR_CHECK(tickstone_ble_update(milliseconds, first_unsynced_log() != NULL));

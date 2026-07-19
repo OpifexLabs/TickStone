@@ -13,6 +13,7 @@ run_test() {
 }
 
 run_test clock_service_test -Icomponents/clock_service/include tests/clock_service_test.c components/clock_service/clock_service.c
+run_test clock_sync_policy_test -Icomponents/clock_sync_policy/include tests/clock_sync_policy_test.c components/clock_sync_policy/clock_sync_policy.c
 run_test habit_app_test -Icomponents/habit_app/include -Icomponents/clock_service/include tests/habit_app_test.c components/habit_app/habit_app.c components/clock_service/clock_service.c
 run_test habit_codec_test -Icomponents/habit_app/include -Icomponents/habit_codec/include tests/habit_codec_test.c components/habit_codec/habit_codec.c
 run_test habit_legacy_test -Icomponents/habit_app/include -Icomponents/habit_legacy/include tests/habit_legacy_test.c components/habit_legacy/habit_legacy.c
