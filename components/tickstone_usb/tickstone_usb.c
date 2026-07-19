@@ -8,6 +8,7 @@
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "freertos/task.h"
+#include "clock_service.h"
 #include "habit_web_config.h"
 
 #define USB_LINE_SIZE 1024
@@ -54,11 +55,10 @@ static void handle_line(char *line)
         return;
     }
     if (strncmp(line, "TS1 TIME ", 9) == 0) {
-        char *end = NULL;
-        long long value = strtoll(line + 9, &end, 10);
-        if (end && *end == 0 && value >= 1704067200LL) {
+        int64_t value = 0;
+        if (clock_service_parse_utc(line + 9, &value)) {
             xSemaphoreTake(s_lock, portMAX_DELAY);
-            s_utc_seconds = (int64_t)value;
+            s_utc_seconds = value;
             s_time_pending = true;
             xSemaphoreGive(s_lock);
             printf("@TS1 OK TIME\n");

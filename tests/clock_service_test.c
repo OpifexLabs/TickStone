@@ -15,6 +15,22 @@ static void test_clock_validity(void)
     assert(!clock_service_utc_is_valid(0));
     assert(!clock_service_utc_is_valid(1704067199));
     assert(clock_service_utc_is_valid(1704067200));
+    assert(clock_service_utc_is_valid(4102444799));
+    assert(!clock_service_utc_is_valid(4102444800));
+    assert(!clock_service_utc_is_valid(INT64_MAX));
+}
+
+static void test_clock_text_parsing_rejects_overflow_and_bad_ranges(void)
+{
+    int64_t value = 0;
+    assert(clock_service_parse_utc("1704067200", &value));
+    assert(value == 1704067200);
+    assert(!clock_service_parse_utc("1704067200junk", &value));
+    assert(!clock_service_parse_utc("4102444800", &value));
+    assert(!clock_service_parse_utc("999999999999999999999999", &value));
+    assert(!clock_service_parse_utc("", &value));
+    assert(!clock_service_parse_utc(NULL, &value));
+    assert(!clock_service_parse_utc("1704067200", NULL));
 }
 
 static void test_spring_dst_day_boundary(void)
@@ -48,6 +64,7 @@ int main(void)
 {
     clock_service_init();
     test_clock_validity();
+    test_clock_text_parsing_rejects_overflow_and_bad_ranges();
     test_spring_dst_day_boundary();
     test_fall_dst_day_boundary();
     test_calendar_weeks_and_months();

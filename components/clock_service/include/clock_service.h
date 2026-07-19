@@ -20,6 +20,7 @@ typedef struct {
 
 void clock_service_init(void);
 bool clock_service_utc_is_valid(int64_t utc_seconds);
+bool clock_service_parse_utc(const char *text, int64_t *utc_seconds);
 bool clock_service_now_utc(int64_t *utc_seconds);
 bool clock_service_calendar_periods(int64_t utc_seconds, clock_calendar_periods_t *periods);
 

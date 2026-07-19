@@ -47,6 +47,11 @@ typedef enum {
 } habit_screen_id_t;
 
 typedef enum {
+    HABIT_ERROR_STORAGE = 0,
+    HABIT_ERROR_CLOCK,
+} habit_error_t;
+
+typedef enum {
     HABIT_STAT_LATEST_LOG = 0,
     HABIT_STAT_WEEK_TOTAL,
     HABIT_STAT_WEEK_DELTA,
@@ -157,6 +162,7 @@ typedef struct {
     habit_home_mode_t home_mode;
     habit_screen_id_t screen;
     habit_screen_id_t error_return_screen;
+    habit_error_t error_reason;
     habit_stat_view_t stat_view;
     int64_t confirm_until;
 

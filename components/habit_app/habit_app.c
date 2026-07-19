@@ -153,11 +153,24 @@ static bool append_log(habit_app_t *app, habit_log_t log)
     return true;
 }
 
-static void show_log_full_error(habit_app_t *app, habit_screen_id_t return_screen)
+static void show_error(habit_app_t *app,
+                       habit_error_t reason,
+                       habit_screen_id_t return_screen)
 {
     app->screen = HABIT_SCREEN_ERROR;
     app->error_return_screen = return_screen;
+    app->error_reason = reason;
     mark_dirty(app);
+}
+
+static void show_log_full_error(habit_app_t *app, habit_screen_id_t return_screen)
+{
+    show_error(app, HABIT_ERROR_STORAGE, return_screen);
+}
+
+static void show_clock_error(habit_app_t *app, habit_screen_id_t return_screen)
+{
+    show_error(app, HABIT_ERROR_CLOCK, return_screen);
 }
 
 static const habit_config_t *habit_by_id(const habit_app_t *app, uint8_t habit_id)
@@ -181,12 +194,16 @@ static const habit_log_t *latest_habit_log(const habit_app_t *app, uint8_t habit
 
 static void log_count_event(habit_app_t *app, int64_t now_seconds)
 {
+    if (!app->clock_synced) {
+        show_clock_error(app, HABIT_SCREEN_SELECT);
+        return;
+    }
     const habit_config_t *habit = selected_habit_const(app);
     if (!append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_COUNT,
-        .timestamp_start = app->clock_synced ? app->utc_now : 0,
-        .timestamp_end = app->clock_synced ? app->utc_now : 0,
+        .timestamp_start = app->utc_now,
+        .timestamp_end = app->utc_now,
         .duration_seconds = 0,
         .count_value = 1,
         .synced = false,
@@ -215,14 +232,18 @@ static uint32_t elapsed_session_seconds(const habit_app_t *app, int64_t now_seco
 
 static void start_time_session(habit_app_t *app, int64_t now_seconds)
 {
+    if (!app->clock_synced) {
+        show_clock_error(app, app->screen);
+        return;
+    }
     app->session_active = true;
     app->session_paused = false;
     app->session_start = now_seconds;
     app->session_paused_at = 0;
     app->session_paused_total = 0;
     app->timer_seconds = app->session_time_mode == HABIT_TIME_TIMER ? app->setup_minutes * 60 : 0;
-    app->session_start_utc = app->clock_synced ? app->utc_now : 0;
-    app->session_start_utc_valid = app->clock_synced;
+    app->session_start_utc = app->utc_now;
+    app->session_start_utc_valid = true;
     app->timer_completed = false;
     app->screen = HABIT_SCREEN_SESSION;
     app->session_dirty = true;
@@ -238,18 +259,26 @@ static void save_time_session(habit_app_t *app, int64_t now_seconds, bool comple
 
     const habit_config_t *habit = selected_habit_const(app);
     uint32_t duration = elapsed_session_seconds(app, now_seconds);
-    int64_t timestamp_end = app->clock_synced ? app->utc_now : 0;
     if (app->session_time_mode == HABIT_TIME_TIMER && duration >= app->timer_seconds) {
         duration = app->timer_seconds;
-        if (app->clock_synced) {
-            timestamp_end = app->utc_now - (elapsed_session_seconds(app, now_seconds) - duration);
-        }
     }
+    if (!app->session_start_utc_valid && !app->clock_synced) {
+        app->session_paused = true;
+        app->session_paused_at = now_seconds;
+        app->session_dirty = true;
+        show_clock_error(app, HABIT_SCREEN_SESSION);
+        return;
+    }
+    int64_t timestamp_end = app->clock_synced ? app->utc_now : app->session_start_utc + duration;
+    if (app->clock_synced && app->session_time_mode == HABIT_TIME_TIMER) {
+        timestamp_end = app->utc_now - (elapsed_session_seconds(app, now_seconds) - duration);
+    }
+    const int64_t timestamp_start = app->session_start_utc_valid ? app->session_start_utc :
+                                    timestamp_end - duration;
     if (!append_log(app, (habit_log_t) {
         .habit_id = habit->id,
         .type = HABIT_TYPE_TIME,
-        .timestamp_start = app->session_start_utc_valid ? app->session_start_utc :
-                           app->clock_synced ? timestamp_end - duration : 0,
+        .timestamp_start = timestamp_start,
         .timestamp_end = timestamp_end,
         .duration_seconds = duration,
         .count_value = 0,
@@ -1107,9 +1136,15 @@ const habit_screen_t *habit_app_screen(habit_app_t *app, int64_t now_seconds)
     case HABIT_SCREEN_ERROR:
         screen->icon = HABIT_UI_ICON_CLOSE;
         screen->ok_action = HABIT_UI_ICON_BACK;
-        snprintf(screen->header, sizeof(screen->header), "STORAGE");
-        snprintf(screen->primary, sizeof(screen->primary), "LOG FULL");
-        snprintf(screen->secondary, sizeof(screen->secondary), "SYNC NEEDED");
+        if (app->error_reason == HABIT_ERROR_CLOCK) {
+            snprintf(screen->header, sizeof(screen->header), "CLOCK");
+            snprintf(screen->primary, sizeof(screen->primary), "SYNC NEEDED");
+            snprintf(screen->secondary, sizeof(screen->secondary), "WAIT FOR PI");
+        } else {
+            snprintf(screen->header, sizeof(screen->header), "STORAGE");
+            snprintf(screen->primary, sizeof(screen->primary), "LOG FULL");
+            snprintf(screen->secondary, sizeof(screen->secondary), "SYNC NEEDED");
+        }
         break;
     }
 

@@ -2,11 +2,13 @@
 
 #include "clock_service.h"
 
+#include <errno.h>
 #include <stddef.h>
 #include <stdlib.h>
 #include <time.h>
 
 #define CLOCK_VALID_FROM_UTC 1704067200LL
+#define CLOCK_VALID_UNTIL_UTC 4102444800LL
 #define STOCKHOLM_TZ "CET-1CEST,M3.5.0/2,M10.5.0/3"
 
 static int64_t floor_div_i64(int64_t value, int64_t divisor)
@@ -39,7 +41,21 @@ void clock_service_init(void)
 
 bool clock_service_utc_is_valid(int64_t utc_seconds)
 {
-    return utc_seconds >= CLOCK_VALID_FROM_UTC;
+    return utc_seconds >= CLOCK_VALID_FROM_UTC && utc_seconds < CLOCK_VALID_UNTIL_UTC;
+}
+
+bool clock_service_parse_utc(const char *text, int64_t *utc_seconds)
+{
+    if (text == NULL || utc_seconds == NULL || *text == '\0') return false;
+    errno = 0;
+    char *end = NULL;
+    const long long parsed = strtoll(text, &end, 10);
+    if (errno == ERANGE || end == text || *end != '\0' ||
+        !clock_service_utc_is_valid((int64_t)parsed)) {
+        return false;
+    }
+    *utc_seconds = (int64_t)parsed;
+    return true;
 }
 
 bool clock_service_now_utc(int64_t *utc_seconds)

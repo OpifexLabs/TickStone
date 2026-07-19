@@ -40,10 +40,15 @@ static const habit_log_t *first_unsynced_log(void)
     return NULL;
 }
 
-static void set_utc_time(int64_t utc_seconds)
+static bool set_utc_time(int64_t utc_seconds)
 {
+    if (!clock_service_utc_is_valid(utc_seconds)) return false;
     const struct timeval time = {.tv_sec = (time_t)utc_seconds};
-    settimeofday(&time, NULL);
+    if (settimeofday(&time, NULL) != 0) return false;
+    int64_t applied_utc = 0;
+    if (!clock_service_now_utc(&applied_utc)) return false;
+    const int64_t delta = applied_utc - utc_seconds;
+    return delta >= -2 && delta <= 2;
 }
 
 static void apply_transport_requests(void)
@@ -56,9 +61,12 @@ static void apply_transport_requests(void)
     }
     int64_t utc_seconds = 0;
     if (tickstone_usb_take_time(&utc_seconds) || tickstone_ble_take_time(&utc_seconds)) {
-        set_utc_time(utc_seconds);
-        clock_sync_policy_synchronized(&s_clock_sync_policy, now_milliseconds());
-        ESP_LOGI(TAG, "Clock set by host");
+        if (set_utc_time(utc_seconds)) {
+            clock_sync_policy_synchronized(&s_clock_sync_policy, now_milliseconds());
+            ESP_LOGI(TAG, "Clock set by host");
+        } else {
+            ESP_LOGE(TAG, "Host clock rejected or failed to apply");
+        }
     }
     uint64_t ack_id = 0;
     if (tickstone_ble_take_ack(&ack_id) && ack_id == s_ble_published_log_id &&
@@ -359,7 +367,8 @@ void app_main(void)
                                                                         milliseconds);
         int64_t utc_seconds = 0;
         bool clock_synced = clock_service_now_utc(&utc_seconds);
-        habit_app_update_clock(&s_app, utc_seconds, clock_synced);
+        const bool host_clock_confirmed = clock_sync_policy_is_synchronized(&s_clock_sync_policy);
+        habit_app_update_clock(&s_app, utc_seconds, clock_synced && host_clock_confirmed);
         habit_app_tick(&s_app, seconds);
 
         uint32_t completion_sequence = habit_app_completion_sequence(&s_app);

@@ -5,6 +5,7 @@
 
 #include "esp_log.h"
 #include "esp_check.h"
+#include "clock_service.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/semphr.h"
 #include "host/ble_hs.h"
@@ -75,7 +76,9 @@ static int access_control(uint16_t conn_handle, uint16_t attr_handle,
     xSemaphoreTake(s_lock, portMAX_DELAY);
     if (length == 2 && command[0] == 3 && command[1] < TICKSTONE_BLE_CONFIG_PAGE_COUNT) {
         s_config_page = command[1];
-    } else if (length == 9 && command[0] == 1 && get_u64(&command[1]) >= 1704067200ULL) {
+    } else if (length == 9 && command[0] == 1 &&
+               get_u64(&command[1]) <= INT64_MAX &&
+               clock_service_utc_is_valid((int64_t)get_u64(&command[1]))) {
         uint64_t value = get_u64(&command[1]);
         s_utc_seconds = (int64_t)value; s_time_pending = true;
     } else if (length == 9 && command[0] == 2 && get_u64(&command[1]) != 0) {

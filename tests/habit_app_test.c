@@ -5,13 +5,22 @@
 #include <stdio.h>
 #include <string.h>
 
+static void ensure_test_clock(habit_app_t *app, int64_t now)
+{
+    if (!habit_app_clock_is_synced(app)) {
+        habit_app_update_clock(app, 1704110400 + now, true);
+    }
+}
+
 static void press(habit_app_t *app, habit_button_t button, int64_t now)
 {
+    ensure_test_clock(app, now);
     habit_app_handle_button(app, button, HABIT_PRESS_SHORT, now);
 }
 
 static void long_press(habit_app_t *app, habit_button_t button, int64_t now)
 {
+    ensure_test_clock(app, now);
     habit_app_handle_button(app, button, HABIT_PRESS_LONG, now);
 }
 
@@ -49,6 +58,53 @@ static void test_count_and_undo(void)
     long_press(&app, HABIT_BUTTON_OK, 101);
     assert(app.logs[0].deleted);
     assert(!app.logs[0].synced);
+}
+
+static void test_count_requires_a_valid_clock(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 100);
+    assert(app.log_count == 0);
+    assert(app.screen == HABIT_SCREEN_ERROR);
+    const habit_screen_t *screen = habit_app_screen(&app, 100);
+    assert(strcmp(screen->header, "CLOCK") == 0);
+    assert(strcmp(screen->primary, "SYNC NEEDED") == 0);
+}
+
+static void test_time_session_requires_a_valid_clock(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+
+    habit_app_handle_button(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 100);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 101);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 102);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 103);
+    assert(!app.session_active);
+    assert(app.screen == HABIT_SCREEN_ERROR);
+    assert(app.log_count == 0);
+}
+
+static void test_synced_session_can_finish_if_clock_becomes_unavailable(void)
+{
+    habit_app_t app;
+    habit_app_init(&app);
+    const int64_t start_utc = 1704110400;
+    habit_app_update_clock(&app, start_utc, true);
+
+    habit_app_handle_button(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 100);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 101);
+    habit_app_handle_button(&app, HABIT_BUTTON_RIGHT, HABIT_PRESS_SHORT, 102);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_SHORT, 103);
+    assert(app.session_active);
+
+    habit_app_update_clock(&app, 0, false);
+    habit_app_handle_button(&app, HABIT_BUTTON_OK, HABIT_PRESS_LONG, 133);
+    assert(app.log_count == 1);
+    assert(app.logs[0].timestamp_start == start_utc);
+    assert(app.logs[0].timestamp_end == start_utc + 30);
 }
 
 static void test_navigation_wraps_between_habits(void)
@@ -482,6 +538,9 @@ int main(void)
     clock_service_init();
     test_day_boundary();
     test_count_and_undo();
+    test_count_requires_a_valid_clock();
+    test_time_session_requires_a_valid_clock();
+    test_synced_session_can_finish_if_clock_becomes_unavailable();
     test_navigation_wraps_between_habits();
     test_home_modes_and_habit_detail();
     test_habit_detail_shows_latest_log();

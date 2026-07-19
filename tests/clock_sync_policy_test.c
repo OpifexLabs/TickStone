@@ -8,6 +8,7 @@ static void test_boot_requests_time_immediately_and_retries_hourly(void)
     clock_sync_policy_t policy;
     clock_sync_policy_init(&policy, 1000);
 
+    assert(!clock_sync_policy_is_synchronized(&policy));
     assert(clock_sync_policy_take_request(&policy, 1000));
     assert(!clock_sync_policy_take_request(&policy, 1001));
     assert(!clock_sync_policy_take_request(&policy, 1000 + CLOCK_SYNC_RETRY_MS - 1));
@@ -22,6 +23,7 @@ static void test_success_schedules_hourly_drift_correction(void)
     assert(clock_sync_policy_take_request(&policy, 0));
 
     clock_sync_policy_synchronized(&policy, 5000);
+    assert(clock_sync_policy_is_synchronized(&policy));
     assert(!clock_sync_policy_take_request(&policy, 5000 + CLOCK_SYNC_PERIOD_MS - 1));
     assert(clock_sync_policy_take_request(&policy, 5000 + CLOCK_SYNC_PERIOD_MS));
     assert(!clock_sync_policy_take_request(&policy, 5000 + CLOCK_SYNC_PERIOD_MS + 1));
