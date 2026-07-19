@@ -1,7 +1,7 @@
 [Unit]
 Description=TickStone Bluetooth history sync
-Requires=bluetooth.service
-After=bluetooth.service
+Requires=bluetooth.service tickstone-ble-connection.service
+After=bluetooth.service tickstone-ble-connection.service
 
 [Service]
 Type=simple

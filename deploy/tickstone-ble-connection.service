@@ -1,0 +1,36 @@
+[Unit]
+Description=Configure TickStone initial BLE connection timeout
+Requires=bluetooth.service
+After=bluetooth.service
+Before=tickstone-sync.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/bin/python3 /usr/local/libexec/tickstone-ble-connection
+RemainAfterExit=yes
+NoNewPrivileges=true
+CapabilityBoundingSet=
+PrivateTmp=true
+PrivateDevices=true
+PrivateNetwork=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectClock=true
+ProtectControlGroups=true
+ProtectKernelLogs=true
+ProtectKernelModules=true
+ProtectHostname=true
+ProtectProc=invisible
+ProcSubset=pid
+RestrictNamespaces=true
+RestrictRealtime=true
+RestrictSUIDSGID=true
+LockPersonality=true
+MemoryDenyWriteExecute=true
+SystemCallArchitectures=native
+RestrictAddressFamilies=AF_UNIX
+ReadWritePaths=/sys/kernel/debug/bluetooth
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

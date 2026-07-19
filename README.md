@@ -59,7 +59,7 @@ Lat verktyget vanta pa nya loggar pa den dator som ska ta emot dem:
 tools/tickstone_ble_sync.py --watch
 ```
 
-Utan `--watch` gor kommandot ett enda synkforsok. TickStone oppnar ett BLE-fonster i hogst 60 sekunder vid uppstart, varje timme efter lyckad klocksynk och nar en logg skapas. Om ingen vard svarar forsoker klockpolicyn igen efter en timme. Innan en giltig vardtid har bekraftats under aktuell boot avvisas loggskapande med `CLOCK / SYNC NEEDED / WAIT FOR PI`; ingen epoch-zero-logg sparas eller publiceras. Vardtider utanfor intervallet 2024-01-01 till 2099-12-31 eller tider som inte kan appliceras betraktas inte som lyckad synk. Vid anslutning begar firmware 30–50 ms intervall och fyra sekunders supervision timeout sa att BlueZ hinner slutföra GATT-service discovery aven vid tillfallig svarslatens. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
+Utan `--watch` gor kommandot ett enda synkforsok. TickStone oppnar ett BLE-fonster i hogst 60 sekunder vid uppstart, varje timme efter lyckad klocksynk och nar en logg skapas. Om ingen vard svarar forsoker klockpolicyn igen efter en timme. Innan en giltig vardtid har bekraftats under aktuell boot avvisas loggskapande med `CLOCK / SYNC NEEDED / WAIT FOR PI`; ingen epoch-zero-logg sparas eller publiceras. Vardtider utanfor intervallet 2024-01-01 till 2099-12-31 eller tider som inte kan appliceras betraktas inte som lyckad synk. Vid anslutning begar firmware 30–50 ms intervall och fyra sekunders supervision timeout sa att BlueZ hinner slutföra GATT-service discovery aven vid tillfallig svarslatens. Raspberry Pi-kontraktet satter dessutom Linux initiala LE supervision timeout till sex sekunder innan mottagaren startar; det hindrar kärnans standard pa 420 ms fran att bryta länken innan firmware hinner begara sina parametrar. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
 
 Firmware exponerar ocksa en read-only, paginerad config-characteristic
 `7e570000-7a1b-4c2d-9e10-000000000004`. Varje anslutning laser en versionsmarkt
@@ -99,7 +99,18 @@ Habitnamn lagras automatiskt som snapshots eftersom en stabil plats kan byta nam
 python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone record-habits habits.json
 ```
 
-Repo-filerna `deploy/tickstone-sync.service`, `deploy/tickstone-backup.service` och `deploy/tickstone-backup.timer` ar de installerade systemd-kontrakten pa Pi:n. Timern gor en daglig SQLite online-backup och en separat kopia av JSONL under `~/.local/share/tickstone/backups/`. Filnamn ar UTC-tidsstampade och en befintlig backup skrivs aldrig over. Manuell backup:
+Repo-filerna `deploy/tickstone-ble-connection.service`, `deploy/tickstone-sync.service`, `deploy/tickstone-backup.service` och `deploy/tickstone-backup.timer` ar de installerade systemd-kontrakten pa Pi:n. `tickstone-ble-connection.service` ar en kort root-oneshot som skriver och verifierar sex sekunder i kärnans `hci*/supervision_timeout`; den startar ingen Bluetooth-mottagare. `tickstone-sync.service` ar fortsatt den enda kanoniska mottagaren och startar endast efter lyckad timeout-konfiguration. Installera kontrakten med:
+
+```sh
+sudo install -o root -g root -m 0755 tools/tickstone_ble_connection.py /usr/local/libexec/tickstone-ble-connection
+sudo install -o root -g root -m 0644 deploy/tickstone-ble-connection.service /etc/systemd/system/tickstone-ble-connection.service
+sudo install -o root -g root -m 0644 deploy/tickstone-sync.service /etc/systemd/system/tickstone-sync.service
+sudo systemctl daemon-reload
+sudo systemctl enable tickstone-ble-connection.service tickstone-sync.service
+sudo systemctl restart tickstone-ble-connection.service tickstone-sync.service
+```
+
+Timern gor en daglig SQLite online-backup och en separat kopia av JSONL under `~/.local/share/tickstone/backups/`. Filnamn ar UTC-tidsstampade och en befintlig backup skrivs aldrig over. Manuell backup:
 
 ```sh
 python3 tools/tickstone_store.py --data-dir ~/.local/share/tickstone backup

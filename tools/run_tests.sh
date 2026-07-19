@@ -27,6 +27,7 @@ run_test sync_payload_test -Icomponents/habit_app/include -Icomponents/sync_payl
 run_test tickstone_ble_protocol_test -Icomponents/habit_app/include -Icomponents/tickstone_ble/include tests/tickstone_ble_protocol_test.c components/tickstone_ble/tickstone_ble_protocol.c
 
 python3 tests/tickstone_settings_test.py
+python3 tests/tickstone_ble_connection_test.py
 python3 tests/tickstone_ble_sync_test.py
 python3 tests/tickstone_store_test.py
 python3 tests/tickstone_dashboard_test.py
