@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 import asyncio
+import io
 import struct
 import sys
 import types
 import unittest
 import zlib
+from contextlib import redirect_stdout
 from pathlib import Path
+from unittest.mock import patch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "tools"))
@@ -18,8 +21,9 @@ if "bleak" not in sys.modules:
     sys.modules["bleak"] = bleak
     sys.modules["bleak.exc"] = errors
 
+import tickstone_ble_sync  # noqa: E402
 from tickstone_ble_sync import (  # noqa: E402
-    CONFIG_UUID, CONTROL_UUID, DATA_UUID, decode_config_snapshot, read_config, sync_client,
+    CONFIG_UUID, CONTROL_UUID, DATA_UUID, decode_config_snapshot, read_config, sync_client, watch,
 )
 
 
@@ -121,6 +125,28 @@ class ConfigProtocolTest(unittest.TestCase):
         with self.assertRaises(OSError):
             asyncio.run(sync_client(client, Path("unused"), synced_at=2000000000, persist=fail))
         self.assertNotIn(2, [value[0] for _, value in client.writes])
+
+    def test_watch_retries_after_bluez_disconnect_eof(self):
+        attempts = 0
+
+        async def failing_then_stop(*_args, **_kwargs):
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise EOFError()
+            raise RuntimeError("stop test loop")
+
+        async def no_delay(_seconds):
+            return None
+
+        output = io.StringIO()
+        with patch.object(tickstone_ble_sync, "sync", new=failing_then_stop), \
+             patch.object(tickstone_ble_sync.asyncio, "sleep", new=no_delay), \
+             redirect_stdout(output), self.assertRaisesRegex(RuntimeError, "stop test loop"):
+            asyncio.run(watch(Path("unused")))
+
+        self.assertEqual(attempts, 2)
+        self.assertIn("EOFError", output.getvalue())
 
 
 if __name__ == "__main__":
