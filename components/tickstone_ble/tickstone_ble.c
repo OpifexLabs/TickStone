@@ -120,8 +120,20 @@ static void advertise(void);
 
 static int gap_event(struct ble_gap_event *event, void *arg)
 {
-    if ((event->type == BLE_GAP_EVENT_CONNECT && event->connect.status != 0) ||
-        event->type == BLE_GAP_EVENT_DISCONNECT || event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
+    if (event->type == BLE_GAP_EVENT_CONNECT && event->connect.status == 0) {
+        const struct ble_gap_upd_params params = {
+            .itvl_min = TICKSTONE_BLE_CONN_INTERVAL_MIN,
+            .itvl_max = TICKSTONE_BLE_CONN_INTERVAL_MAX,
+            .latency = TICKSTONE_BLE_CONN_LATENCY,
+            .supervision_timeout = TICKSTONE_BLE_SUPERVISION_TIMEOUT,
+            .min_ce_len = 0,
+            .max_ce_len = 0,
+        };
+        int rc = ble_gap_update_params(event->connect.conn_handle, &params);
+        if (rc != 0) ESP_LOGW(TAG, "connection parameter update failed: %d", rc);
+    } else if ((event->type == BLE_GAP_EVENT_CONNECT && event->connect.status != 0) ||
+               event->type == BLE_GAP_EVENT_DISCONNECT ||
+               event->type == BLE_GAP_EVENT_ADV_COMPLETE) {
         if (!s_stopping) advertise();
     }
     return 0;

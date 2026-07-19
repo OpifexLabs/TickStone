@@ -9,6 +9,13 @@ static uint32_t get_u32(const uint8_t *p) { uint32_t v=0; for(int i=0;i<4;i++) v
 
 int main(void)
 {
+    assert(TICKSTONE_BLE_CONN_INTERVAL_MIN == 24);
+    assert(TICKSTONE_BLE_CONN_INTERVAL_MAX == 40);
+    assert(TICKSTONE_BLE_CONN_LATENCY == 0);
+    assert(TICKSTONE_BLE_SUPERVISION_TIMEOUT == 400);
+    assert(TICKSTONE_BLE_SUPERVISION_TIMEOUT * 8 >
+           (1 + TICKSTONE_BLE_CONN_LATENCY) * TICKSTONE_BLE_CONN_INTERVAL_MAX * 2);
+
     uint8_t packet[TICKSTONE_BLE_PACKET_SIZE];
     assert(tickstone_ble_encode_log(NULL, packet) && packet[0] == 1 && packet[1] == 0);
     habit_log_t log = {.id=42,.habit_id=3,.type=HABIT_TYPE_TIME,.timestamp_start=1700000000,
