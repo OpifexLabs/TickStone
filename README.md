@@ -59,7 +59,7 @@ Lat verktyget vanta pa nya loggar pa den dator som ska ta emot dem:
 tools/tickstone_ble_sync.py --watch
 ```
 
-Utan `--watch` gor kommandot ett enda synkforsok. Nar en logg skapas oppnar TickStone ett BLE-fonster i hogst 60 sekunder. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
+Utan `--watch` gor kommandot ett enda synkforsok. TickStone oppnar ett BLE-fonster i hogst 60 sekunder vid uppstart, varje timme efter lyckad klocksynk och nar en logg skapas. Om ingen vard svarar forsoker klockpolicyn igen efter en timme. Radion stangs av tre sekunder efter tom synkko eller nar fonstret tar slut. Verktyget satter klockan, hamtar varje osynkad logg och sparar den idempotent i `~/tickstone-logs.jsonl` innan stabilt logg-ID kvitteras. Ett avbrott fore kvittens ger saker omleverans. Raspberry Pi-anvandaren maste ha rattighet till Bluetooth via BlueZ; USB-verktyget kan krava medlemskap i gruppen `dialout`.
 
 Firmware exponerar ocksa en read-only, paginerad config-characteristic
 `7e570000-7a1b-4c2d-9e10-000000000004`. Varje anslutning laser en versionsmarkt
@@ -190,18 +190,18 @@ systemd-analyze security tickstone-dashboard.service --no-pager
 
 - Versionerat little-endian-format med CRC, explicit migrering fran tidigare NVS-format och ingen automatisk radering vid NVS-fel.
 - Ringlager med 512 poster och kompakta dagssammanfattningar for 70 kalenderdagar. Osynkade poster skrivs aldrig over; UI visar `LOG FULL / SYNC NEEDED` om kon gar full.
-- CPU skalar mellan 40 och 160 MHz och FreeRTOS anvander tickless idle. WiFi startas inte. BLE-radion ar helt av i vila och aktiveras tillfalligt av en ny osynkad logg. Automatisk light sleep ar avstangd pa USB-prototypen; djupsomn aktiveras forst med definierade wake-pinnar.
+- CPU skalar mellan 40 och 160 MHz och FreeRTOS anvander tickless idle. WiFi startas inte. BLE-radion ar helt av i vila och aktiveras tillfalligt av en ny osynkad logg samt av korta boot-/periodiska klocksynkfonster. Automatisk light sleep ar avstangd pa USB-prototypen; djupsomn aktiveras forst med definierade wake-pinnar.
 - NVS har en egen 128 KB-partition och appen anvander resterande flash.
 
 ## Bygg och flash
 
 ```sh
 source "$HOME/esp/esp-idf/export.sh"
-idf.py build
-idf.py -p /dev/cu.usbmodemXXXX flash monitor
+idf.py -B build-idf build
+idf.py -B build-idf -p /dev/cu.usbmodemXXXX flash monitor
 ```
 
-Projektet ar konfigurerat for `esp32c3`. Att byta target skriver om `sdkconfig` och ska inte goras for den har hardvaran.
+Projektet ar konfigurerat for `esp32c3`. Att byta target skriver om `sdkconfig` och ska inte goras for den har hardvaran. `build-idf/` halls separat fran `build/`, som anvands av vardtesterna. Kor vardtesterna utan ESP-IDF:s exporterade Python-`PATH`; kor sedan firmwarebygget i ett separat shell dar `export.sh` har laddats.
 
 ## Tester
 
@@ -209,5 +209,5 @@ Vardtesterna tacker habit-floden, kalendergranser och DST, codec/CRC, legacy-mig
 
 ```sh
 tools/run_tests.sh
-idf.py build
+idf.py -B build-idf build
 ```
