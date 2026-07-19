@@ -161,8 +161,9 @@ async def watch(output, database=None):
         try:
             if await sync(output, database, attempts=1):
                 await asyncio.sleep(5)
-        except (BleakError, TimeoutError, OSError, ValueError) as error:
-            print(f"Synk misslyckades, forsoker igen: {error}")
+        except (BleakError, EOFError, TimeoutError, OSError, ValueError) as error:
+            detail = str(error) or error.__class__.__name__
+            print(f"Synk misslyckades, forsoker igen: {detail}")
         await asyncio.sleep(2)
 
 
